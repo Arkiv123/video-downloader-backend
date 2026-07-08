@@ -18,7 +18,6 @@ import glob
 import shutil
 import hashlib
 import json
-import time
 
 app = FastAPI(title="Video Downloader API")
 
@@ -34,16 +33,36 @@ CACHE_DIR = "cache"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Cache index maps a request key -> saved file path. Persisted to disk so it
-# survives while the server is awake (free tier wipes it on sleep/redeploy).
 CACHE_INDEX_PATH = os.path.join(CACHE_DIR, "_index.json")
 MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024   # keep the cache under ~2 GB
 
 # --- The bot-check bypass. Makes yt-dlp pose as the YouTube phone app,
-#     which skips most "confirm you're not a bot" blocks. No cookies needed.
+#     which skips most "confirm you're not a bot" blocks.
 YOUTUBE_BYPASS = {
     "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}}
 }
+
+# --- Cookies. YouTube on a cloud server often needs a logged-in cookie file to
+#     get past "confirm you're not a bot". We look in two places:
+#       1) local file "cookies.txt" (for testing on your PC)
+#       2) Render Secret File at "/etc/secrets/cookies.txt" (for production)
+def _find_cookies():
+    for path in ("cookies.txt", "/etc/secrets/cookies.txt"):
+        if os.path.exists(path):
+            return path
+    return None
+
+COOKIE_FILE = _find_cookies()
+
+
+def _base_opts(extra=None):
+    """Common yt-dlp options, with cookies + bypass applied everywhere."""
+    opts = {"noplaylist": True, **YOUTUBE_BYPASS}
+    if COOKIE_FILE:
+        opts["cookiefile"] = COOKIE_FILE
+    if extra:
+        opts.update(extra)
+    return opts
 
 
 class URLRequest(BaseModel):
@@ -79,7 +98,6 @@ def _cache_key(url, format_id, audio_only):
 
 
 def _prune_cache():
-    """Keep total cache size under the cap by deleting the oldest files first."""
     idx = _load_index()
     files = []
     total = 0
@@ -89,9 +107,9 @@ def _prune_cache():
             files.append((os.path.getmtime(path), key, path, sz))
             total += sz
         else:
-            idx.pop(key, None)  # stale entry, file already gone
+            idx.pop(key, None)
     if total > MAX_CACHE_BYTES:
-        files.sort()  # oldest first
+        files.sort()
         while total > MAX_CACHE_BYTES and files:
             _, key, path, sz = files.pop(0)
             try:
@@ -105,7 +123,6 @@ def _prune_cache():
 
 # ------------------------- formats -------------------------
 def _clean_formats(info):
-    """Full resolution ladder + a guaranteed Audio only (MP3) option."""
     best_video = {}
     best_audio = {}
 
@@ -175,7 +192,7 @@ def _clean_formats(info):
 @app.post("/formats")
 def get_formats(req: URLRequest):
     try:
-        ydl_opts = {"quiet": True, "skip_download": True, "noplaylist": True, **YOUTUBE_BYPASS}
+        ydl_opts = _base_opts({"quiet": True, "skip_download": True})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(req.url, download=False)
     except Exception as e:
@@ -195,7 +212,6 @@ def download(req: DownloadRequest):
     audio_only = req.audio_only or req.format_id == "audio-mp3"
     key = _cache_key(req.url, req.format_id, audio_only)
 
-    # 1) CACHE HIT -> serve the saved file instantly, no re-fetch, no re-merge.
     idx = _load_index()
     cached = idx.get(key)
     if cached and os.path.exists(cached):
@@ -206,22 +222,19 @@ def download(req: DownloadRequest):
             headers={"X-Cache": "HIT"},
         )
 
-    # 2) CACHE MISS -> download it.
     job_id = str(uuid.uuid4())[:8]
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title)s.%(ext)s")
 
     chosen_format = "bestaudio/best" if audio_only else f"{req.format_id}+bestaudio/best/{req.format_id}/best"
 
-    ydl_opts = {
+    ydl_opts = _base_opts({
         "outtmpl": outtmpl,
         "format": chosen_format,
         "merge_output_format": "mp4/mkv",
         "concurrent_fragment_downloads": 16,
-        "noplaylist": True,
         "restrictfilenames": True,
         "postprocessor_args": {"merger+ffmpeg": ["-movflags", "+faststart"]},
-        **YOUTUBE_BYPASS,
-    }
+    })
 
     if shutil.which("aria2c"):
         ydl_opts["external_downloader"] = "aria2c"
@@ -246,12 +259,11 @@ def download(req: DownloadRequest):
         raise HTTPException(status_code=500, detail="File not found after download.")
     filename = max(matches, key=os.path.getsize)
 
-    # 3) Move the finished file into the cache and record it.
     cached_path = os.path.join(CACHE_DIR, f"{key}_{os.path.basename(filename)}")
     try:
         shutil.move(filename, cached_path)
     except Exception:
-        cached_path = filename  # if move fails, just serve where it is
+        cached_path = filename
     idx = _load_index()
     idx[key] = cached_path
     _save_index(idx)
@@ -267,4 +279,4 @@ def download(req: DownloadRequest):
 
 @app.get("/")
 def health_check():
-    return {"status": "ok", "message": "Video downloader API is running."}
+    return {"status": "ok", "message": "Video downloader API is running.", "cookies": bool(COOKIE_FILE)}
