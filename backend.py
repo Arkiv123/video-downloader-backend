@@ -56,10 +56,13 @@ COOKIE_FILE = _find_cookies()
 
 
 def _base_opts(extra=None):
-    """Common yt-dlp options, with cookies + bypass applied everywhere."""
-    opts = {"noplaylist": True, **YOUTUBE_BYPASS}
+    """Common yt-dlp options. Use cookies when available; otherwise fall back
+    to the phone-app bypass. The two don't play nicely together, so pick one."""
+    opts = {"noplaylist": True}
     if COOKIE_FILE:
-        opts["cookiefile"] = COOKIE_FILE
+        opts["cookiefile"] = COOKIE_FILE   # cookies alone; no client override
+    else:
+        opts.update(YOUTUBE_BYPASS)        # no cookies -> phone-app trick
     if extra:
         opts.update(extra)
     return opts
