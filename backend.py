@@ -3,11 +3,13 @@ FastAPI backend for the video downloader.
 Exposes:
   POST /formats   -> returns clean quality options for a given URL
   POST /download  -> downloads at chosen quality, merges audio, streams file back
+                     (but redirects to the direct source link when no merge is
+                      needed -> lightning fast, bypasses this server entirely)
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 import yt_dlp
 import os
@@ -45,9 +47,20 @@ class DownloadRequest(BaseModel):
 
 
 def _clean_formats(info):
-    """Collapse yt-dlp's raw format list into simple, human-friendly options."""
-    seen = set()
-    options = []
+    """Collapse yt-dlp's raw format list into simple, human-friendly options.
+
+    Keeps the FULL resolution ladder. When two entries share the same
+    resolution, we keep the better one (mp4 preferred, bigger filesize wins)
+    instead of dropping resolutions like the old version did.
+    """
+    best_video = {}   # height -> option
+    best_audio = {}    # abr    -> option
+
+    def _score(f, prefer_ext):
+        # higher is better: prefer the chosen container, then bigger file
+        ext_bonus = 1 if f.get("ext") == prefer_ext else 0
+        size = f.get("filesize") or f.get("filesize_approx") or 0
+        return (ext_bonus, size)
 
     for f in info.get("formats", []):
         vcodec = f.get("vcodec")
@@ -55,38 +68,55 @@ def _clean_formats(info):
         ext = f.get("ext")
         height = f.get("height")
 
-        if vcodec != "none" and height:
-            label = f"{height}p ({ext})"
-            key = ("video", height, ext)
-            if key not in seen:
-                seen.add(key)
-                options.append({
-                    "format_id": f.get("format_id"),
-                    "label": label,
-                    "type": "video",
-                    "ext": ext,
-                    "filesize": f.get("filesize") or f.get("filesize_approx"),
-                })
-        elif vcodec == "none" and acodec != "none":
-            abr = f.get("abr")
-            label = f"Audio only (~{int(abr)}kbps)" if abr else "Audio only"
-            key = ("audio", int(abr) if abr else 0, ext)
-            if key not in seen:
-                seen.add(key)
-                options.append({
-                    "format_id": f.get("format_id"),
-                    "label": label,
-                    "type": "audio",
-                    "ext": ext,
-                    "filesize": f.get("filesize") or f.get("filesize_approx"),
-                })
+        # video streams (with or without built-in audio)
+        if vcodec and vcodec != "none" and height:
+            has_audio = acodec and acodec != "none"
+            opt = {
+                "format_id": f.get("format_id"),
+                "label": f"{height}p ({ext})",
+                "type": "video",
+                "ext": ext,
+                "height": height,
+                "filesize": f.get("filesize") or f.get("filesize_approx"),
+                "progressive": bool(has_audio),  # already has audio? no merge needed
+                "url": f.get("url"),
+            }
+            cur = best_video.get(height)
+            if cur is None:
+                best_video[height] = opt
+            else:
+                # prefer a progressive (audio+video) stream, then mp4, then bigger
+                cur_prog = cur.get("progressive")
+                if opt["progressive"] and not cur_prog:
+                    best_video[height] = opt
+                elif opt["progressive"] == cur_prog and _score(f, "mp4") > _score(
+                    {"ext": cur["ext"], "filesize": cur["filesize"]}, "mp4"
+                ):
+                    best_video[height] = opt
 
-    videos = sorted(
-        [o for o in options if o["type"] == "video"],
-        key=lambda o: int(o["label"].split("p")[0]),
-        reverse=True,
-    )
-    audios = [o for o in options if o["type"] == "audio"]
+        # audio-only streams
+        elif (not vcodec or vcodec == "none") and acodec and acodec != "none":
+            abr = f.get("abr") or 0
+            label = f"Audio only (~{int(abr)}kbps)" if abr else "Audio only"
+            opt = {
+                "format_id": f.get("format_id"),
+                "label": label,
+                "type": "audio",
+                "ext": ext,
+                "abr": int(abr),
+                "filesize": f.get("filesize") or f.get("filesize_approx"),
+                "progressive": True,   # audio-only never needs a merge
+                "url": f.get("url"),
+            }
+            key = int(abr)
+            if key not in best_audio or _score(f, "m4a") > _score(
+                {"ext": best_audio[key]["ext"], "filesize": best_audio[key]["filesize"]},
+                "m4a",
+            ):
+                best_audio[key] = opt
+
+    videos = sorted(best_video.values(), key=lambda o: o["height"], reverse=True)
+    audios = sorted(best_audio.values(), key=lambda o: o.get("abr", 0), reverse=True)
     return videos + audios
 
 
@@ -107,26 +137,51 @@ def get_formats(req: URLRequest):
     }
 
 
+def _direct_url_for(url, format_id):
+    """Ask yt-dlp for the direct CDN link of a single (progressive) format.
+    Returns the URL if that format already has audio+video, else None."""
+    try:
+        opts = {"quiet": True, "skip_download": True, "noplaylist": True,
+                "format": format_id, **YOUTUBE_BYPASS}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        # when a single format is selected, yt-dlp puts its details at top level
+        req_formats = info.get("requested_formats")
+        if req_formats:
+            return None  # multiple streams -> needs merging, can't direct-link
+        vcodec = info.get("vcodec")
+        acodec = info.get("acodec")
+        if vcodec and vcodec != "none" and acodec and acodec != "none":
+            return info.get("url")
+    except Exception:
+        return None
+    return None
+
+
 @app.post("/download")
 def download(req: DownloadRequest):
+    # LIGHTNING PATH: if the chosen format already has audio+video, send the
+    # browser straight to the source CDN. No server download, near-instant.
+    if not req.audio_only:
+        direct = _direct_url_for(req.url, req.format_id)
+        if direct:
+            return RedirectResponse(url=direct, status_code=302)
+
+    # MERGE PATH: format needs video+audio combined (or audio extraction).
     job_id = str(uuid.uuid4())[:8]
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title)s.%(ext)s")
 
     ydl_opts = {
         "outtmpl": outtmpl,
-        # chosen video + best audio, with safe fallbacks so it never comes back silent
         "format": "bestaudio/best" if req.audio_only else f"{req.format_id}+bestaudio/best/{req.format_id}/best",
-        # prefer mp4, but allow mkv when codecs don't fit mp4 (webm sources etc.)
         "merge_output_format": "mp4/mkv",
-        "concurrent_fragment_downloads": 8,
+        "concurrent_fragment_downloads": 16,   # more parallel = faster
         "noplaylist": True,
-        "restrictfilenames": True,          # kills weird-character filename bugs
-        # faststart = clean scrubbing/seeking in VLC and every player
+        "restrictfilenames": True,
         "postprocessor_args": {"merger+ffmpeg": ["-movflags", "+faststart"]},
         **YOUTUBE_BYPASS,
     }
 
-    # aria2c makes it faster, but not every environment has it. use it only if present.
     if shutil.which("aria2c"):
         ydl_opts["external_downloader"] = "aria2c"
         ydl_opts["external_downloader_args"] = ["-x", "16", "-s", "16", "-k", "1M"]
@@ -144,12 +199,11 @@ def download(req: DownloadRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Download failed: {e}")
 
-    # don't guess the extension — find whatever file actually got created for this job
     matches = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}_*"))
     matches = [m for m in matches if not m.endswith((".part", ".ytdl", ".temp"))]
     if not matches:
         raise HTTPException(status_code=500, detail="File not found after download.")
-    filename = max(matches, key=os.path.getsize)  # the finished file is the biggest
+    filename = max(matches, key=os.path.getsize)
 
     return FileResponse(
         path=filename,
