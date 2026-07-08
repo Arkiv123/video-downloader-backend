@@ -3,6 +3,8 @@ FastAPI backend for the video downloader.
 Exposes:
   POST /formats   -> returns clean quality options for a given URL
   POST /download  -> downloads at chosen quality, merges audio, streams file back
+                     Finished files are CACHED, so the same video+quality served
+                     again is instant (no re-fetch, no re-merge).
 """
 
 from fastapi import FastAPI, HTTPException
@@ -14,6 +16,9 @@ import os
 import uuid
 import glob
 import shutil
+import hashlib
+import json
+import time
 
 app = FastAPI(title="Video Downloader API")
 
@@ -25,7 +30,14 @@ app.add_middleware(
 )
 
 DOWNLOAD_DIR = "downloads"
+CACHE_DIR = "cache"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Cache index maps a request key -> saved file path. Persisted to disk so it
+# survives while the server is awake (free tier wipes it on sleep/redeploy).
+CACHE_INDEX_PATH = os.path.join(CACHE_DIR, "_index.json")
+MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024   # keep the cache under ~2 GB
 
 # --- The bot-check bypass. Makes yt-dlp pose as the YouTube phone app,
 #     which skips most "confirm you're not a bot" blocks. No cookies needed.
@@ -44,15 +56,58 @@ class DownloadRequest(BaseModel):
     audio_only: bool = False
 
 
-def _clean_formats(info):
-    """Collapse yt-dlp's raw format list into simple, human-friendly options.
+# ------------------------- cache helpers -------------------------
+def _load_index():
+    try:
+        with open(CACHE_INDEX_PATH, "r") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
 
-    Keeps the FULL resolution ladder, and ALWAYS offers an "Audio only (MP3)"
-    choice even when the site (e.g. Pinterest) only serves combined streams,
-    because we can extract audio from the best stream on the server.
-    """
-    best_video = {}   # height -> option
-    best_audio = {}   # abr    -> option
+
+def _save_index(idx):
+    try:
+        with open(CACHE_INDEX_PATH, "w") as fh:
+            json.dump(idx, fh)
+    except Exception:
+        pass
+
+
+def _cache_key(url, format_id, audio_only):
+    raw = f"{url}|{format_id}|{audio_only}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:20]
+
+
+def _prune_cache():
+    """Keep total cache size under the cap by deleting the oldest files first."""
+    idx = _load_index()
+    files = []
+    total = 0
+    for key, path in list(idx.items()):
+        if os.path.exists(path):
+            sz = os.path.getsize(path)
+            files.append((os.path.getmtime(path), key, path, sz))
+            total += sz
+        else:
+            idx.pop(key, None)  # stale entry, file already gone
+    if total > MAX_CACHE_BYTES:
+        files.sort()  # oldest first
+        while total > MAX_CACHE_BYTES and files:
+            _, key, path, sz = files.pop(0)
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            idx.pop(key, None)
+            total -= sz
+    _save_index(idx)
+
+
+# ------------------------- formats -------------------------
+def _clean_formats(info):
+    """Full resolution ladder + a guaranteed Audio only (MP3) option."""
+    best_video = {}
+    best_audio = {}
 
     def _better(new, old, prefer_ext):
         if bool(new.get("progressive")) != bool(old.get("progressive")):
@@ -103,11 +158,9 @@ def _clean_formats(info):
     videos = sorted(best_video.values(), key=lambda o: o["height"], reverse=True)
     audios = sorted(best_audio.values(), key=lambda o: o.get("abr", 0), reverse=True)
 
-    # GUARANTEE an audio choice. If the site gave no separate audio track
-    # (Pinterest, some IG/TikTok), offer an MP3 we extract from the best stream.
     if not audios:
         audios = [{
-            "format_id": "audio-mp3",   # special marker handled in /download
+            "format_id": "audio-mp3",
             "label": "Audio only (MP3)",
             "type": "audio",
             "ext": "mp3",
@@ -136,25 +189,34 @@ def get_formats(req: URLRequest):
     }
 
 
+# ------------------------- download -------------------------
 @app.post("/download")
 def download(req: DownloadRequest):
+    audio_only = req.audio_only or req.format_id == "audio-mp3"
+    key = _cache_key(req.url, req.format_id, audio_only)
+
+    # 1) CACHE HIT -> serve the saved file instantly, no re-fetch, no re-merge.
+    idx = _load_index()
+    cached = idx.get(key)
+    if cached and os.path.exists(cached):
+        return FileResponse(
+            path=cached,
+            filename=os.path.basename(cached).split("_", 1)[-1],
+            media_type="application/octet-stream",
+            headers={"X-Cache": "HIT"},
+        )
+
+    # 2) CACHE MISS -> download it.
     job_id = str(uuid.uuid4())[:8]
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title)s.%(ext)s")
 
-    # treat our special MP3 marker as an audio-only request
-    audio_only = req.audio_only or req.format_id == "audio-mp3"
-
-    if audio_only:
-        chosen_format = "bestaudio/best"
-    else:
-        # chosen video + best audio, with safe fallbacks so it never comes back silent
-        chosen_format = f"{req.format_id}+bestaudio/best/{req.format_id}/best"
+    chosen_format = "bestaudio/best" if audio_only else f"{req.format_id}+bestaudio/best/{req.format_id}/best"
 
     ydl_opts = {
         "outtmpl": outtmpl,
         "format": chosen_format,
         "merge_output_format": "mp4/mkv",
-        "concurrent_fragment_downloads": 16,   # more parallel chunks = faster
+        "concurrent_fragment_downloads": 16,
         "noplaylist": True,
         "restrictfilenames": True,
         "postprocessor_args": {"merger+ffmpeg": ["-movflags", "+faststart"]},
@@ -178,17 +240,28 @@ def download(req: DownloadRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Download failed: {e}")
 
-    # don't guess the extension — find whatever file actually got created for this job
     matches = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}_*"))
     matches = [m for m in matches if not m.endswith((".part", ".ytdl", ".temp"))]
     if not matches:
         raise HTTPException(status_code=500, detail="File not found after download.")
-    filename = max(matches, key=os.path.getsize)  # the finished file is the biggest
+    filename = max(matches, key=os.path.getsize)
+
+    # 3) Move the finished file into the cache and record it.
+    cached_path = os.path.join(CACHE_DIR, f"{key}_{os.path.basename(filename)}")
+    try:
+        shutil.move(filename, cached_path)
+    except Exception:
+        cached_path = filename  # if move fails, just serve where it is
+    idx = _load_index()
+    idx[key] = cached_path
+    _save_index(idx)
+    _prune_cache()
 
     return FileResponse(
-        path=filename,
-        filename=os.path.basename(filename).split("_", 1)[-1],
+        path=cached_path,
+        filename=os.path.basename(cached_path).split("_", 1)[-1],
         media_type="application/octet-stream",
+        headers={"X-Cache": "MISS"},
     )
 
 
