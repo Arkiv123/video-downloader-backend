@@ -15,8 +15,6 @@ import uuid
 
 app = FastAPI(title="Video Downloader API")
 
-# Allow your Cloudflare Pages frontend to call this API.
-# Once deployed, replace "*" with your actual Pages URL for security.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,16 +25,19 @@ app.add_middleware(
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+# --- The bot-check bypass. Makes yt-dlp pose as the YouTube phone app,
+#     which skips most "confirm you're not a bot" blocks. No cookies needed.
+YOUTUBE_BYPASS = {
+    "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}}
+}
 
 class URLRequest(BaseModel):
     url: str
-
 
 class DownloadRequest(BaseModel):
     url: str
     format_id: str = "best"
     audio_only: bool = False
-
 
 def _clean_formats(info):
     """Collapse yt-dlp's raw format list into simple, human-friendly options."""
@@ -75,7 +76,6 @@ def _clean_formats(info):
                     "filesize": f.get("filesize"),
                 })
 
-    # Sort: video options high-to-low resolution, then audio options
     videos = sorted(
         [o for o in options if o["type"] == "video"],
         key=lambda o: int(o["label"].split("p")[0]),
@@ -84,11 +84,10 @@ def _clean_formats(info):
     audios = [o for o in options if o["type"] == "audio"]
     return videos + audios
 
-
 @app.post("/formats")
 def get_formats(req: URLRequest):
     try:
-        ydl_opts = {"quiet": True, "skip_download": True}
+        ydl_opts = {"quiet": True, "skip_download": True, **YOUTUBE_BYPASS}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(req.url, download=False)
     except Exception as e:
@@ -100,7 +99,6 @@ def get_formats(req: URLRequest):
         "duration": info.get("duration"),
         "formats": _clean_formats(info),
     }
-
 
 @app.post("/download")
 def download(req: DownloadRequest):
@@ -114,6 +112,7 @@ def download(req: DownloadRequest):
         "external_downloader_args": ["-x", "16", "-s", "16", "-k", "1M"],
         "concurrent_fragment_downloads": 8,
         "noplaylist": True,
+        **YOUTUBE_BYPASS,
     }
 
     if req.audio_only:
@@ -140,7 +139,6 @@ def download(req: DownloadRequest):
         filename=os.path.basename(filename).split("_", 1)[-1],
         media_type="application/octet-stream",
     )
-
 
 @app.get("/")
 def health_check():
