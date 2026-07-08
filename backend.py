@@ -2,7 +2,7 @@
 FastAPI backend for the video downloader.
 Exposes:
   POST /formats   -> returns clean quality options for a given URL
-  POST /download  -> downloads at chosen quality, streams file back
+  POST /download  -> downloads at chosen quality, merges audio, streams file back
 """
 
 from fastapi import FastAPI, HTTPException
@@ -12,6 +12,8 @@ from pydantic import BaseModel
 import yt_dlp
 import os
 import uuid
+import glob
+import shutil
 
 app = FastAPI(title="Video Downloader API")
 
@@ -31,13 +33,16 @@ YOUTUBE_BYPASS = {
     "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}}
 }
 
+
 class URLRequest(BaseModel):
     url: str
+
 
 class DownloadRequest(BaseModel):
     url: str
     format_id: str = "best"
     audio_only: bool = False
+
 
 def _clean_formats(info):
     """Collapse yt-dlp's raw format list into simple, human-friendly options."""
@@ -60,7 +65,7 @@ def _clean_formats(info):
                     "label": label,
                     "type": "video",
                     "ext": ext,
-                    "filesize": f.get("filesize"),
+                    "filesize": f.get("filesize") or f.get("filesize_approx"),
                 })
         elif vcodec == "none" and acodec != "none":
             abr = f.get("abr")
@@ -73,7 +78,7 @@ def _clean_formats(info):
                     "label": label,
                     "type": "audio",
                     "ext": ext,
-                    "filesize": f.get("filesize"),
+                    "filesize": f.get("filesize") or f.get("filesize_approx"),
                 })
 
     videos = sorted(
@@ -84,10 +89,11 @@ def _clean_formats(info):
     audios = [o for o in options if o["type"] == "audio"]
     return videos + audios
 
+
 @app.post("/formats")
 def get_formats(req: URLRequest):
     try:
-        ydl_opts = {"quiet": True, "skip_download": True, **YOUTUBE_BYPASS}
+        ydl_opts = {"quiet": True, "skip_download": True, "noplaylist": True, **YOUTUBE_BYPASS}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(req.url, download=False)
     except Exception as e:
@@ -100,6 +106,7 @@ def get_formats(req: URLRequest):
         "formats": _clean_formats(info),
     }
 
+
 @app.post("/download")
 def download(req: DownloadRequest):
     job_id = str(uuid.uuid4())[:8]
@@ -107,13 +114,22 @@ def download(req: DownloadRequest):
 
     ydl_opts = {
         "outtmpl": outtmpl,
-        "format": "bestaudio/best" if req.audio_only else req.format_id,
-        "external_downloader": "aria2c",
-        "external_downloader_args": ["-x", "16", "-s", "16", "-k", "1M"],
+        # chosen video + best audio, with safe fallbacks so it never comes back silent
+        "format": "bestaudio/best" if req.audio_only else f"{req.format_id}+bestaudio/best/{req.format_id}/best",
+        # prefer mp4, but allow mkv when codecs don't fit mp4 (webm sources etc.)
+        "merge_output_format": "mp4/mkv",
         "concurrent_fragment_downloads": 8,
         "noplaylist": True,
+        "restrictfilenames": True,          # kills weird-character filename bugs
+        # faststart = clean scrubbing/seeking in VLC and every player
+        "postprocessor_args": {"merger+ffmpeg": ["-movflags", "+faststart"]},
         **YOUTUBE_BYPASS,
     }
+
+    # aria2c makes it faster, but not every environment has it. use it only if present.
+    if shutil.which("aria2c"):
+        ydl_opts["external_downloader"] = "aria2c"
+        ydl_opts["external_downloader_args"] = ["-x", "16", "-s", "16", "-k", "1M"]
 
     if req.audio_only:
         ydl_opts["postprocessors"] = [{
@@ -124,21 +140,23 @@ def download(req: DownloadRequest):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(req.url, download=True)
-            filename = ydl.prepare_filename(info)
-            if req.audio_only:
-                filename = os.path.splitext(filename)[0] + ".mp3"
+            ydl.extract_info(req.url, download=True)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Download failed: {e}")
 
-    if not os.path.exists(filename):
+    # don't guess the extension — find whatever file actually got created for this job
+    matches = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}_*"))
+    matches = [m for m in matches if not m.endswith((".part", ".ytdl", ".temp"))]
+    if not matches:
         raise HTTPException(status_code=500, detail="File not found after download.")
+    filename = max(matches, key=os.path.getsize)  # the finished file is the biggest
 
     return FileResponse(
         path=filename,
         filename=os.path.basename(filename).split("_", 1)[-1],
         media_type="application/octet-stream",
     )
+
 
 @app.get("/")
 def health_check():
