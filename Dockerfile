@@ -14,4 +14,6 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "backend:app", "--host", "0.0.0.0", "--port", "8000"]
+# Upgrade yt-dlp on every container start: platform extractors (YouTube,
+# TikTok, Instagram...) break often and fixes ship in new releases.
+CMD ["sh", "-c", "pip install --no-cache-dir -U yt-dlp; uvicorn backend:app --host 0.0.0.0 --port ${PORT:-8000}"]

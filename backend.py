@@ -11,8 +11,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import Optional
 import yt_dlp
 import os
+import re
 import uuid
 import glob
 import shutil
@@ -36,12 +38,6 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 CACHE_INDEX_PATH = os.path.join(CACHE_DIR, "_index.json")
 MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024   # keep the cache under ~2 GB
 
-# --- The bot-check bypass. Makes yt-dlp pose as the YouTube phone app,
-#     which skips most "confirm you're not a bot" blocks.
-YOUTUBE_BYPASS = {
-    "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}}
-}
-
 # --- Cookies. YouTube on a cloud server often needs a logged-in cookie file to
 #     get past "confirm you're not a bot". We look in two places:
 #       1) local file "cookies.txt" (for testing on your PC)
@@ -54,18 +50,57 @@ def _find_cookies():
 
 COOKIE_FILE = _find_cookies()
 
+# ffmpeg is needed to merge video+audio and to convert to MP3. On hosts
+# without it (e.g. Render native Python runtime instead of Docker) we must
+# avoid "+" merge selectors or every download fails.
+FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
+
+# --- YouTube player-client fallbacks. If the default extraction fails
+#     (bot check, empty formats, SABR-only response), retry with other
+#     clients. Harmless for non-YouTube URLs (extractor_args are ignored).
+CLIENT_FALLBACKS = [
+    None,
+    {"extractor_args": {"youtube": {"player_client": ["tv", "web_safari"]}}},
+    {"extractor_args": {"youtube": {"player_client": ["android_vr"]}}},
+]
+
 
 def _base_opts(extra=None):
-    """Common yt-dlp options. Use cookies when available; otherwise fall back
-    to the phone-app bypass. The two don't play nicely together, so pick one."""
-    opts = {"noplaylist": True}
+    """Common yt-dlp options. Cookies (when available) get YouTube past the
+    bot check. We deliberately do NOT force android/ios player clients any
+    more: those clients require PO tokens in current yt-dlp and come back
+    with "confirm you're not a bot" or an empty format list. yt-dlp's own
+    client rotation is maintained upstream and works best left alone."""
+    opts = {
+        "noplaylist": True,
+        "socket_timeout": 30,
+    }
     if COOKIE_FILE:
-        opts["cookiefile"] = COOKIE_FILE   # cookies alone; no client override
-    else:
-        opts.update(YOUTUBE_BYPASS)        # no cookies -> phone-app trick
+        opts["cookiefile"] = COOKIE_FILE
     if extra:
         opts.update(extra)
     return opts
+
+
+def _extract_with_fallbacks(url, extra):
+    """extract_info that retries across player clients before giving up."""
+    last_err = None
+    for client_cfg in CLIENT_FALLBACKS:
+        opts = _base_opts(extra)
+        if client_cfg:
+            opts.update(client_cfg)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if info and (info.get("formats") or info.get("entries") or info.get("url")):
+                return info
+            last_err = Exception("Extractor returned no formats.")
+        except Exception as e:
+            last_err = e
+        # only YouTube benefits from client rotation — fail fast elsewhere
+        if "youtube.com" not in url and "youtu.be" not in url:
+            break
+    raise last_err
 
 
 class URLRequest(BaseModel):
@@ -76,6 +111,7 @@ class DownloadRequest(BaseModel):
     url: str
     format_id: str = "best"
     audio_only: bool = False
+    height: Optional[int] = None   # resolution the user picked; drives fallbacks
 
 
 # ------------------------- cache helpers -------------------------
@@ -125,6 +161,59 @@ def _prune_cache():
 
 
 # ------------------------- formats -------------------------
+# Formats that are never downloadable media (storyboards, thumbnails).
+_JUNK_EXTS = {"mhtml", "jpg", "jpeg", "png", "webp", "gif", "svg", "json"}
+
+_NOTE_HEIGHTS = {
+    "144p": 144, "240p": 240, "360p": 360, "480p": 480, "540p": 540,
+    "720p": 720, "1080p": 1080, "1440p": 1440, "2160p": 2160, "4320p": 4320,
+    "tiny": 144, "low": 240, "sd": 480, "medium": 480, "hd": 720, "high": 1080,
+}
+
+
+def _guess_height(f):
+    """Best-effort height. Many extractors (TikTok, Instagram, Facebook, X,
+    Reddit, ...) omit `height` and only give width, resolution string, or a
+    quality note like "hd"/"sd" — those formats must still show up."""
+    if f.get("height"):
+        return int(f["height"])
+    res = f.get("resolution") or ""
+    m = re.search(r"(\d+)\s*[xX×]\s*(\d+)", str(res))
+    if m:
+        return min(int(m.group(1)), int(m.group(2)))
+    m = re.search(r"(\d{3,4})p", str(f.get("format_note") or "") + str(res))
+    if m:
+        return int(m.group(1))
+    note = str(f.get("format_note") or "").strip().lower()
+    if note in _NOTE_HEIGHTS:
+        return _NOTE_HEIGHTS[note]
+    if f.get("width"):
+        # assume 16:9 as a rough grade so the option is at least selectable
+        return int(round(int(f["width"]) * 9 / 16))
+    return None
+
+
+def _is_video(f):
+    vcodec = f.get("vcodec")
+    if vcodec and vcodec != "none":
+        return True
+    # vcodec unknown (None): treat as video when there's any visual dimension
+    # and it isn't a pure audio stream
+    if vcodec is None and (f.get("height") or f.get("width") or f.get("resolution") not in (None, "audio only")):
+        acodec = f.get("acodec")
+        return not (acodec and acodec != "none" and not f.get("height") and not f.get("width"))
+    return False
+
+
+def _is_audio(f):
+    acodec = f.get("acodec")
+    vcodec = f.get("vcodec")
+    if acodec and acodec != "none" and (not vcodec or vcodec == "none"):
+        return True
+    # audio-only formats where acodec is unknown but resolution says so
+    return f.get("resolution") == "audio only" and (not vcodec or vcodec == "none")
+
+
 def _clean_formats(info):
     best_video = {}
     best_audio = {}
@@ -139,13 +228,19 @@ def _clean_formats(info):
         return (new.get("filesize") or 0) > (old.get("filesize") or 0)
 
     for f in info.get("formats", []):
-        vcodec = f.get("vcodec")
-        acodec = f.get("acodec")
         ext = f.get("ext")
-        height = f.get("height")
+        if ext in _JUNK_EXTS or not f.get("format_id"):
+            continue
+        # DRM'd streams can't be downloaded — don't offer them
+        if f.get("has_drm"):
+            continue
 
-        if vcodec and vcodec != "none" and height:
-            has_audio = acodec and acodec != "none"
+        if _is_video(f):
+            height = _guess_height(f)
+            if not height:
+                continue  # generic "best" fallback below still covers it
+            acodec = f.get("acodec")
+            has_audio = bool(acodec and acodec != "none")
             opt = {
                 "format_id": f.get("format_id"),
                 "label": f"{height}p ({ext})",
@@ -153,14 +248,14 @@ def _clean_formats(info):
                 "ext": ext,
                 "height": height,
                 "filesize": f.get("filesize") or f.get("filesize_approx"),
-                "progressive": bool(has_audio),
+                "progressive": has_audio,
             }
             cur = best_video.get(height)
             if cur is None or _better(opt, cur, "mp4"):
                 best_video[height] = opt
 
-        elif (not vcodec or vcodec == "none") and acodec and acodec != "none":
-            abr = int(f.get("abr") or 0)
+        elif _is_audio(f):
+            abr = int(f.get("abr") or f.get("tbr") or 0)
             label = f"Audio only (~{abr}kbps)" if abr else "Audio only"
             opt = {
                 "format_id": f.get("format_id"),
@@ -177,6 +272,20 @@ def _clean_formats(info):
 
     videos = sorted(best_video.values(), key=lambda o: o["height"], reverse=True)
     audios = sorted(best_audio.values(), key=lambda o: o.get("abr", 0), reverse=True)
+
+    # Guaranteed fallback: yt-dlp's own "best" selector works on effectively
+    # every extractor, even when per-format metadata is too sparse to list.
+    # This is what makes sources with weird format tables still downloadable.
+    if not videos:
+        videos = [{
+            "format_id": "best",
+            "label": "Best available (auto)",
+            "type": "video",
+            "ext": info.get("ext") or "mp4",
+            "height": info.get("height") or 0,
+            "filesize": info.get("filesize") or info.get("filesize_approx"),
+            "progressive": True,
+        }]
 
     if not audios:
         audios = [{
@@ -195,11 +304,17 @@ def _clean_formats(info):
 @app.post("/formats")
 def get_formats(req: URLRequest):
     try:
-        ydl_opts = _base_opts({"quiet": True, "skip_download": True})
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(req.url, download=False)
+        info = _extract_with_fallbacks(req.url, {"quiet": True, "skip_download": True})
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not fetch formats: {e}")
+
+    # Some extractors hand back a playlist wrapper even with noplaylist
+    # (multi-clip posts on Instagram/TikTok/Reddit). Use the first entry.
+    if info.get("_type") == "playlist" or "entries" in info:
+        entries = [e for e in (info.get("entries") or []) if e]
+        if not entries:
+            raise HTTPException(status_code=400, detail="No downloadable media found at this URL.")
+        info = entries[0]
 
     return {
         "title": info.get("title"),
@@ -207,6 +322,42 @@ def get_formats(req: URLRequest):
         "duration": info.get("duration"),
         "formats": _clean_formats(info),
     }
+
+
+def _build_format_chain(req, audio_only):
+    """Build a '/'-separated yt-dlp selector chain: exact format first, then
+    same-resolution fallbacks, then progressively looser ones. This is what
+    fixes 'Requested format is not available' — the two extractions (formats
+    vs download) can see different format tables on YouTube, so a raw format
+    ID alone is never trusted to still exist."""
+    fid = (req.format_id or "").strip()
+    merge = FFMPEG_AVAILABLE  # '+' selectors need ffmpeg to mux
+
+    if audio_only:
+        chain = []
+        if fid and fid not in ("best", "audio-mp3"):
+            chain.append(fid)
+        chain += ["bestaudio", "best"]
+        return "/".join(chain)
+
+    chain = []
+    if fid and fid != "best":
+        if merge:
+            chain.append(f"{fid}+bestaudio")
+        chain.append(fid)
+    if req.height:
+        h = int(req.height)
+        if merge:
+            # best pair at the chosen resolution, then nearest below it
+            chain.append(f"bestvideo[height={h}]+bestaudio")
+            chain.append(f"bestvideo[height<={h}]+bestaudio")
+        # progressive (pre-merged) file at or below the chosen resolution —
+        # works without ffmpeg and on every platform
+        chain.append(f"best[height<={h}]")
+    if merge:
+        chain.append("bestvideo+bestaudio")
+    chain.append("best")
+    return "/".join(chain)
 
 
 # ------------------------- download -------------------------
@@ -220,7 +371,7 @@ def download(req: DownloadRequest):
     if cached and os.path.exists(cached):
         return FileResponse(
             path=cached,
-            filename=os.path.basename(cached).split("_", 1)[-1],
+            filename=os.path.basename(cached).split("_", 2)[-1],
             media_type="application/octet-stream",
             headers={"X-Cache": "HIT"},
         )
@@ -228,36 +379,60 @@ def download(req: DownloadRequest):
     job_id = str(uuid.uuid4())[:8]
     outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title)s.%(ext)s")
 
-    chosen_format = "bestaudio/best" if audio_only else f"{req.format_id}+bestaudio/best/{req.format_id}/best"
-
-    ydl_opts = _base_opts({
+    base_extra = {
         "outtmpl": outtmpl,
-        "format": chosen_format,
-        "merge_output_format": "mp4/mkv",
+        "format": _build_format_chain(req, audio_only),
         "concurrent_fragment_downloads": 16,
         "restrictfilenames": True,
-        "postprocessor_args": {"merger+ffmpeg": ["-movflags", "+faststart"]},
-    })
+    }
+
+    if not audio_only and FFMPEG_AVAILABLE:
+        base_extra["merge_output_format"] = "mp4/mkv"
+        base_extra["postprocessor_args"] = {"merger": ["-movflags", "+faststart"]}
 
     if shutil.which("aria2c"):
-        ydl_opts["external_downloader"] = "aria2c"
-        ydl_opts["external_downloader_args"] = ["-x", "16", "-s", "16", "-k", "1M"]
+        base_extra["external_downloader"] = "aria2c"
+        base_extra["external_downloader_args"] = ["-x", "16", "-s", "16", "-k", "1M"]
 
-    if audio_only:
-        ydl_opts["postprocessors"] = [{
+    if audio_only and FFMPEG_AVAILABLE:
+        base_extra["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
             "preferredquality": "192",
         }]
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info(req.url, download=True)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Download failed: {e}")
+    # Try default extraction first; on 'Requested format is not available' or
+    # bot-check errors, retry. YouTube URLs rotate player clients; every
+    # platform gets a final attempt with the loosest possible 'best' selector.
+    is_youtube = "youtube.com" in req.url or "youtu.be" in req.url
+    loosest = "bestaudio/best" if audio_only else (
+        "bestvideo+bestaudio/best" if FFMPEG_AVAILABLE else "best")
+    attempts = []
+    for client_cfg in (CLIENT_FALLBACKS if is_youtube else [None]):
+        attempts.append((client_cfg, None))
+    attempts.append((None, loosest))     # last resort: ignore chosen format
+
+    last_err = None
+    downloaded = False
+    for client_cfg, fmt_override in attempts:
+        extra = dict(base_extra)
+        if client_cfg:
+            extra.update(client_cfg)
+        if fmt_override:
+            extra["format"] = fmt_override
+        try:
+            with yt_dlp.YoutubeDL(_base_opts(extra)) as ydl:
+                ydl.extract_info(req.url, download=True)
+            downloaded = True
+            break
+        except Exception as e:
+            last_err = e
+
+    if not downloaded:
+        raise HTTPException(status_code=400, detail=f"Download failed: {last_err}")
 
     matches = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}_*"))
-    matches = [m for m in matches if not m.endswith((".part", ".ytdl", ".temp"))]
+    matches = [m for m in matches if not m.endswith((".part", ".ytdl", ".temp", ".aria2"))]
     if not matches:
         raise HTTPException(status_code=500, detail="File not found after download.")
     filename = max(matches, key=os.path.getsize)
@@ -274,7 +449,7 @@ def download(req: DownloadRequest):
 
     return FileResponse(
         path=cached_path,
-        filename=os.path.basename(cached_path).split("_", 1)[-1],
+        filename=os.path.basename(cached_path).split("_", 2)[-1],
         media_type="application/octet-stream",
         headers={"X-Cache": "MISS"},
     )
