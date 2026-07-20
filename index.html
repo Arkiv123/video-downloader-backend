@@ -653,7 +653,7 @@ async function goLive(){
     let name = (state.data.title||'video').replace(/[\\/:*?"<>|]/g,'').slice(0,80);
     const cd = r.headers.get('content-disposition');
     const m = cd && /filename[^;=\n]*=(?:UTF-8''|")?([^";\n]+)/i.exec(cd);
-    if(m) name = decodeURIComponent(m[1]);
+    if(m) { try { name = decodeURIComponent(m[1]); } catch(e) { name = m[1]; } }
     else { const f=state.data.formats.find(x=>x.format_id===state.selected); name += '.'+((f&&f.type==='audio')?'mp3':((f&&f.ext)||'mp4')); }
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
     document.body.appendChild(a); a.click(); a.remove();

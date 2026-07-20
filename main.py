@@ -43,7 +43,7 @@ def download_video(url: str, format_id: str = "best", audio_only: bool = False):
     Downloads a video (or audio) at the requested quality/format.
     Uses aria2c as external downloader + multiple connections when available.
     """
-    if audio_only:
+    if audio_only or format_id == "audio-mp3":
         chosen_format = "bestaudio/best"
     elif format_id == "best":
         chosen_format = "bestvideo+bestaudio/best"
@@ -57,6 +57,7 @@ def download_video(url: str, format_id: str = "best", audio_only: bool = False):
         "merge_output_format": "mp4",
         "concurrent_fragment_downloads": 8,
         "noplaylist": True,
+        "restrictfilenames": True,
     }
 
     if shutil.which("aria2c"):
@@ -67,7 +68,7 @@ def download_video(url: str, format_id: str = "best", audio_only: bool = False):
             "-k", "1M"    # 1MB min split size
         ]
 
-    if audio_only:
+    if audio_only and shutil.which("ffmpeg"):
         ydl_opts["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",

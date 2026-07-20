@@ -181,7 +181,7 @@ def _guess_height(f):
     m = re.search(r"(\d+)\s*[xX×]\s*(\d+)", str(res))
     if m:
         return min(int(m.group(1)), int(m.group(2)))
-    m = re.search(r"(\d{3,4})p", str(f.get("format_note") or "") + str(res))
+    m = re.search(r"(\d{3,4})p", str(f.get("format_note") or "") + " " + str(res))
     if m:
         return int(m.group(1))
     note = str(f.get("format_note") or "").strip().lower()
@@ -371,7 +371,7 @@ def download(req: DownloadRequest):
     if cached and os.path.exists(cached):
         return FileResponse(
             path=cached,
-            filename=os.path.basename(cached).split("_", 2)[-1],
+            filename=os.path.basename(cached).split("_", 1)[-1],
             media_type="application/octet-stream",
             headers={"X-Cache": "HIT"},
         )
@@ -387,7 +387,7 @@ def download(req: DownloadRequest):
     }
 
     if not audio_only and FFMPEG_AVAILABLE:
-        base_extra["merge_output_format"] = "mp4/mkv"
+        base_extra["merge_output_format"] = "mp4"
         base_extra["postprocessor_args"] = {"merger": ["-movflags", "+faststart"]}
 
     if shutil.which("aria2c"):
@@ -449,7 +449,7 @@ def download(req: DownloadRequest):
 
     return FileResponse(
         path=cached_path,
-        filename=os.path.basename(cached_path).split("_", 2)[-1],
+        filename=os.path.basename(cached_path).split("_", 1)[-1],
         media_type="application/octet-stream",
         headers={"X-Cache": "MISS"},
     )
