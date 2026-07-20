@@ -407,7 +407,7 @@
   <div class="feed">
     <div class="in-wrap">
       <span class="ch">SRC ▸</span>
-      <input id="url" type="url" placeholder="Paste any video URL — YouTube, TikTok, Instagram, X, Facebook, Reddit…" autocomplete="off" spellcheck="false">
+      <input id="url" type="url" placeholder="Paste any URL — YouTube, TikTok, Instagram, X, Spotify, SoundCloud, Twitch…" autocomplete="off" spellcheck="false">
     </div>
     <button class="btn-fetch" id="fetch"><i data-lucide="radio" width="18" height="18"></i>Pull Feed</button>
   </div>
@@ -544,6 +544,21 @@ function render(){
   $('#title').textContent = d.title || 'Untitled feed';
   $('#dur').textContent = fmtDur(d.duration);
   $('#s-run').textContent = fmtDur(d.duration);
+
+  // Live broadcasts can't be captured in real time on this host — show the
+  // note from the backend so it's clear the recording is needed instead.
+  let ln = $('#liveNote');
+  if(d.is_live && d.live_note){
+    if(!ln){
+      ln = document.createElement('div');
+      ln.id = 'liveNote';
+      ln.style.cssText = 'margin:10px 0;padding:10px 12px;border-radius:8px;'
+        + 'background:rgba(255,180,60,.12);border:1px solid rgba(255,180,60,.4);'
+        + 'color:#ffcf80;font-size:13px;line-height:1.4';
+      $('#title').parentElement.appendChild(ln);
+    }
+    ln.textContent = '⚠ ' + d.live_note;
+  } else if(ln){ ln.remove(); }
 
   const vids = d.formats.filter(f=>f.type==='video');
   const best = vids.length ? cleanRes(vids[0].label).res : '—';

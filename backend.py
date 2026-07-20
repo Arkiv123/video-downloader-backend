@@ -209,17 +209,19 @@ def _ensure_pot_server():
 
 _ensure_pot_server()
 
-# --- YouTube player-client fallbacks. If the default extraction fails
-#     (bot check, empty formats, SABR-only response), retry with other
-#     clients. Harmless for non-YouTube URLs (extractor_args are ignored).
+# --- YouTube player-client fallbacks. If the first extraction fails (bot
+#     check, empty formats, SABR-only response), retry with other clients.
+#     Harmless for non-YouTube URLs (extractor_args are ignored).
 #
-#     Order matters: the default (yt-dlp's own rotation) goes first because
-#     paired with a PO-token provider it now returns full format tables.
-#     web_safari + mweb are the clients that a PO token unlocks; tv/android
-#     are last-resort because they often serve only storyboards or DRM.
+#     SPEED: the first attempt asks for the small set of clients that a PO
+#     token unlocks (web_safari + mweb) in ONE call — this returns the full
+#     format table without paying the extra network round-trips of yt-dlp's
+#     broad default rotation (which probes many clients). The remaining entries
+#     are cheaper, single-client retries reached only if the first fails.
+#     tv/android are last-resort (often storyboards-only or DRM).
 CLIENT_FALLBACKS = [
-    None,
     {"extractor_args": {"youtube": {"player_client": ["web_safari", "mweb"]}}},
+    {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
     {"extractor_args": {"youtube": {"player_client": ["tv", "web"]}}},
     {"extractor_args": {"youtube": {"player_client": ["android_vr"]}}},
 ]
@@ -240,7 +242,14 @@ def _base_opts(extra=None, use_cookies=False):
     cookies when the clean attempts all fail (e.g. age-gated / private)."""
     opts = {
         "noplaylist": True,
-        "socket_timeout": 30,
+        # SPEED: fail a hung/slow request fast so we fall through to the next
+        # client instead of blocking. Cap yt-dlp's own retries too — with the
+        # PO-token provider the first good client usually works, so long retry
+        # storms just add latency.
+        "socket_timeout": 12,
+        "retries": 2,
+        "extractor_retries": 1,
+        "fragment_retries": 3,
     }
     # JS runtime for YouTube's n-signature / EJS challenge. Without one,
     # yt-dlp can't solve signatures and format URLs come back throttled or
@@ -255,6 +264,63 @@ def _base_opts(extra=None, use_cookies=False):
     return opts
 
 
+# --- Spotify (and other DRM music services). Spotify audio is DRM-encrypted,
+#     so the actual Spotify stream cannot be downloaded — yt-dlp has no Spotify
+#     extractor by design. The universally-used workaround (spotDL, etc.) is to
+#     read the track's "Artist - Title" from Spotify's public page (no API key)
+#     and download the matching song from YouTube Music instead. That is what we
+#     do here: a Spotify URL is transparently rewritten to a YT-Music search.
+_SPOTIFY_RE = re.compile(r"open\.spotify\.com/(?:intl-\w+/)?track/([A-Za-z0-9]+)")
+
+
+def _spotify_query(url):
+    """Return 'Artist Title' for a Spotify track URL, or None if it isn't one
+    / can't be read. Uses only the public page's <title> + og:description, no
+    auth. Albums/playlists aren't handled (they'd need many searches)."""
+    if not _SPOTIFY_RE.search(url):
+        return None
+    import urllib.request, html as _html
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        page = urllib.request.urlopen(req, timeout=12).read().decode("utf-8", "ignore")
+    except Exception:
+        return None
+    title = artist = None
+    m = re.search(r"<title>([^<]*)</title>", page)
+    if m:
+        # "Blinding Lights - song and lyrics by The Weeknd | Spotify"
+        t = _html.unescape(m.group(1))
+        mm = re.match(r"(.+?)\s*-\s*song(?: and lyrics)? by\s+(.+?)\s*\|", t)
+        if mm:
+            title, artist = mm.group(1).strip(), mm.group(2).strip()
+    if not title:
+        m = re.search(r'<meta property="og:title" content="([^"]*)"', page)
+        if m:
+            title = _html.unescape(m.group(1)).strip()
+    if not artist:
+        m = re.search(r'<meta property="og:description" content="([^"]*)"', page)
+        if m:
+            # "The Weeknd · After Hours · Song · 2020"
+            parts = re.split(r"\s*[·|]\s*", _html.unescape(m.group(1)))
+            if parts:
+                artist = parts[0].strip()
+    if not title:
+        return None
+    return f"{artist} {title}".strip() if artist else title
+
+
+def _rewrite_music_url(url):
+    """Rewrite unsupported music-service URLs to a searchable equivalent.
+    Currently: Spotify track -> YouTube Music search. Returns the (possibly
+    unchanged) URL. ytsearch1: makes yt-dlp fetch the single best match."""
+    q = _spotify_query(url)
+    if q:
+        # ytsearch1 returns the top match as a normal YouTube video, which then
+        # flows through the exact same audio/format pipeline as any other URL.
+        return f"ytsearch1:{q}"
+    return url
+
+
 def _extract_with_fallbacks(url, extra):
     """extract_info that retries across player clients before giving up.
 
@@ -267,7 +333,11 @@ def _extract_with_fallbacks(url, extra):
     Non-YouTube URLs skip client rotation but still get the no-cookies-then
     -cookies escalation, which is harmless and occasionally unblocks
     Instagram/Facebook private posts."""
-    is_youtube = "youtube.com" in url or "youtu.be" in url
+    # A Spotify (or similar) URL becomes a "ytsearch1:Artist Title" query that
+    # resolves via YouTube, so it gets the YouTube client rotation too.
+    url = _rewrite_music_url(url)
+    is_youtube = ("youtube.com" in url or "youtu.be" in url
+                  or url.startswith("ytsearch"))
     clients = CLIENT_FALLBACKS if is_youtube else [None]
     last_err = None
 
@@ -512,6 +582,14 @@ def get_formats(req: URLRequest):
             raise HTTPException(status_code=400, detail="No downloadable media found at this URL.")
         info = entries[0]
 
+    # Live-stream detection. An in-progress live stream never "ends", so a
+    # synchronous download would run forever and hit request timeouts on the
+    # free tier. We surface a flag + human message so the frontend can explain
+    # it instead of appearing to hang. is_live=True is currently airing;
+    # was_live/None with a duration means it's an archived VOD (downloadable).
+    live_status = info.get("live_status")
+    is_live = bool(info.get("is_live")) or live_status in ("is_live", "is_upcoming")
+
     # Stash the resolved info so /download can skip a second full extraction
     # (the slow PO-token + signature handshake). sanitize_info makes it safe to
     # round-trip through JSON, which is how download_with_info_file consumes it.
@@ -524,6 +602,10 @@ def get_formats(req: URLRequest):
         "title": info.get("title"),
         "thumbnail": info.get("thumbnail"),
         "duration": info.get("duration"),
+        "is_live": is_live,
+        "live_note": ("This is a live broadcast. Downloading works once the "
+                      "stream has ended and is available as a recording.")
+                     if is_live else None,
         "formats": _clean_formats(info),
     }
 
@@ -627,7 +709,10 @@ def _fast_download_from_memo(url, base_extra):
 def _full_download_sweep(req, base_extra, audio_only):
     """Full extraction + download with the client/cookie fallback ladder.
     Used when the fast path isn't available or its URLs have expired."""
-    is_youtube = "youtube.com" in req.url or "youtu.be" in req.url
+    # Spotify/etc. -> YouTube-Music search, same as the formats path.
+    dl_url = _rewrite_music_url(req.url)
+    is_youtube = ("youtube.com" in dl_url or "youtu.be" in dl_url
+                  or dl_url.startswith("ytsearch"))
     loosest = "bestaudio/best" if audio_only else (
         "bestvideo+bestaudio/best" if FFMPEG_AVAILABLE else "best")
     clients = CLIENT_FALLBACKS if is_youtube else [None]
@@ -653,7 +738,7 @@ def _full_download_sweep(req, base_extra, audio_only):
             extra["format"] = fmt_override
         try:
             with yt_dlp.YoutubeDL(_base_opts(extra, use_cookies=use_cookies)) as ydl:
-                ydl.extract_info(req.url, download=True)
+                ydl.extract_info(dl_url, download=True)
             return True, None
         except Exception as e:
             last_err = e
