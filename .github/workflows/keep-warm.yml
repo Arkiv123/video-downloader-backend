@@ -1,0 +1,47 @@
+# Keep-warm: the "always-full upstream pan".
+#
+# Render's free tier sleeps the backend after ~15 min idle, causing a 30-60s
+# cold start for the next visitor. This workflow runs on GitHub's own always-on
+# infrastructure (free, no PC required) and pings the health endpoint every
+# ~10 min so the box never sleeps — the perpetual overflow that keeps the pan
+# full without you running anything locally.
+#
+# Notes:
+# - GitHub cron is best-effort and can lag a few minutes under load; the 10-min
+#   interval leaves slack before the 15-min sleep, so occasional lag is fine.
+# - This costs $0 (public-repo Actions minutes are free) and needs no secrets.
+# - You can also trigger it by hand from the Actions tab (workflow_dispatch).
+
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes (UTC)
+  workflow_dispatch:          # allow manual runs from the Actions tab
+
+# If a previous ping is somehow still running, don't pile up.
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          URL="https://video-downloader-backend-79wc.onrender.com/"
+          echo "Pinging $URL"
+          # --max-time bounds the wait so a cold-starting box doesn't hang the
+          # job; we retry a few times to actually wake it if it was asleep.
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            --retry 4 --retry-all-errors --retry-delay 15 \
+            --max-time 90 "$URL")
+          echo "HTTP $code"
+          # Treat any response as success (even 5xx means the box is awake);
+          # only a total connection failure should fail the job.
+          if [ -z "$code" ] || [ "$code" = "000" ]; then
+            echo "No response — backend unreachable."
+            exit 1
+          fi
