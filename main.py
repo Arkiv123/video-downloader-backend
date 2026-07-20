@@ -17,7 +17,13 @@ def get_available_formats(url: str):
     Fetches available video/audio quality options for a given URL
     WITHOUT downloading anything. Used to populate a quality dropdown.
     """
-    ydl_opts = {"quiet": True, "skip_download": True, "noplaylist": True}
+    ydl_opts = {
+        "quiet": True,
+        "skip_download": True,
+        "noplaylist": True,
+        # enable JS runtimes for YouTube signature solving (deno/node/bun)
+        "js_runtimes": {"deno": {}, "node": {}, "bun": {}},
+    }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         formats = []
@@ -58,6 +64,8 @@ def download_video(url: str, format_id: str = "best", audio_only: bool = False):
         "concurrent_fragment_downloads": 8,
         "noplaylist": True,
         "restrictfilenames": True,
+        # enable JS runtimes for YouTube signature solving (deno/node/bun)
+        "js_runtimes": {"deno": {}, "node": {}, "bun": {}},
     }
 
     if shutil.which("aria2c"):

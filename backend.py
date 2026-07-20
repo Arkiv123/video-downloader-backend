@@ -55,27 +55,131 @@ COOKIE_FILE = _find_cookies()
 # avoid "+" merge selectors or every download fails.
 FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
 
+
+# --- JavaScript runtime for YouTube signature solving. yt-dlp needs a JS
+#     runtime (deno >=2.3, node >=22, or bun) to solve YouTube's n-signature
+#     challenge; without it, format URLs come back throttled/missing and you
+#     get "Requested format is not available". yt-dlp only enables deno by
+#     default. We look for a usable binary in PATH and common install dirs and
+#     build a js_runtimes dict pointing at whatever we find.
+def _detect_js_runtimes():
+    runtimes = {}
+    home = os.path.expanduser("~")
+    candidates = {
+        "deno": [
+            shutil.which("deno"),
+            os.path.join(home, ".deno", "bin", "deno.exe"),
+            os.path.join(home, ".deno", "bin", "deno"),
+        ],
+        "node": [shutil.which("node")],
+        "bun": [shutil.which("bun"), os.path.join(home, ".bun", "bin", "bun")],
+    }
+    for name, paths in candidates.items():
+        for p in paths:
+            if p and os.path.exists(p):
+                # empty dict = "enabled, find it yourself"; {'path': p}
+                # pins the exact binary so PATH doesn't matter for uvicorn.
+                runtimes[name] = {"path": p}
+                break
+        else:
+            # still enable by name in case it's resolvable at call time
+            runtimes.setdefault(name, {})
+    return runtimes
+
+
+JS_RUNTIMES = _detect_js_runtimes()
+
+
+# --- PO-token provider server. The bgutil plugin (installed via pip) auto-
+#     connects to an HTTP server on 127.0.0.1:4416 to mint the proof-of-origin
+#     tokens YouTube now requires. If that server isn't already running we try
+#     to start it here so a plain `uvicorn backend:app` just works. The Docker
+#     image starts it in the CMD instead; this is the local-dev convenience.
+POT_PORT = 4416
+
+
+def _pot_server_up():
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", POT_PORT), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _find_pot_server_script():
+    """Locate the bgutil server entrypoint (build/main.js) if it was cloned
+    and built. Checked locations cover the Docker image and a local clone."""
+    home = os.path.expanduser("~")
+    for base in ("/opt/bgutil", os.path.join(home, "bgutil-ytdlp-pot-provider")):
+        candidate = os.path.join(base, "server", "build", "main.js")
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _ensure_pot_server():
+    if _pot_server_up():
+        return
+    script = _find_pot_server_script()
+    node = shutil.which("node")
+    if not (script and node):
+        # No local server available — the http provider will simply be
+        # unavailable and yt-dlp falls back to no-PO-token extraction.
+        return
+    try:
+        import subprocess
+        subprocess.Popen(
+            [node, script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
+_ensure_pot_server()
+
 # --- YouTube player-client fallbacks. If the default extraction fails
 #     (bot check, empty formats, SABR-only response), retry with other
 #     clients. Harmless for non-YouTube URLs (extractor_args are ignored).
+#
+#     Order matters: the default (yt-dlp's own rotation) goes first because
+#     paired with a PO-token provider it now returns full format tables.
+#     web_safari + mweb are the clients that a PO token unlocks; tv/android
+#     are last-resort because they often serve only storyboards or DRM.
 CLIENT_FALLBACKS = [
     None,
-    {"extractor_args": {"youtube": {"player_client": ["tv", "web_safari"]}}},
+    {"extractor_args": {"youtube": {"player_client": ["web_safari", "mweb"]}}},
+    {"extractor_args": {"youtube": {"player_client": ["tv", "web"]}}},
     {"extractor_args": {"youtube": {"player_client": ["android_vr"]}}},
 ]
 
 
-def _base_opts(extra=None):
-    """Common yt-dlp options. Cookies (when available) get YouTube past the
-    bot check. We deliberately do NOT force android/ios player clients any
-    more: those clients require PO tokens in current yt-dlp and come back
-    with "confirm you're not a bot" or an empty format list. yt-dlp's own
-    client rotation is maintained upstream and works best left alone."""
+def _base_opts(extra=None, use_cookies=False):
+    """Common yt-dlp options.
+
+    PO tokens: a locally-running bgutil PO-token provider (installed via the
+    `bgutil-ytdlp-pot-provider` plugin, server on 127.0.0.1:4416) is picked
+    up automatically by yt-dlp. That is the durable fix for YouTube's
+    "confirm you're not a bot" / empty-format responses in 2025+.
+
+    Cookies are OPT-IN per attempt (use_cookies=True), NOT attached by
+    default. A stale/expired cookies.txt actively poisons YouTube: it routes
+    the request to a degraded "tv" player that returns only storyboards and
+    no media. So we extract without cookies first and only fall back to
+    cookies when the clean attempts all fail (e.g. age-gated / private)."""
     opts = {
         "noplaylist": True,
         "socket_timeout": 30,
     }
-    if COOKIE_FILE:
+    # JS runtime for YouTube's n-signature / EJS challenge. Without one,
+    # yt-dlp can't solve signatures and format URLs come back throttled or
+    # missing ("Requested format is not available"). Auto-detected at import
+    # (deno/node/bun); highest-priority available runtime wins.
+    if JS_RUNTIMES:
+        opts["js_runtimes"] = JS_RUNTIMES
+    if use_cookies and COOKIE_FILE:
         opts["cookiefile"] = COOKIE_FILE
     if extra:
         opts.update(extra)
@@ -83,23 +187,37 @@ def _base_opts(extra=None):
 
 
 def _extract_with_fallbacks(url, extra):
-    """extract_info that retries across player clients before giving up."""
+    """extract_info that retries across player clients before giving up.
+
+    Strategy (durable across platforms):
+      1. Try each player client WITHOUT cookies + PO token. This is the
+         path that returns full format tables for most public videos.
+      2. Only if every clean attempt fails do we retry the client rotation
+         WITH cookies — for genuinely gated content (age-restricted,
+         members-only, region-locked) where a login actually helps.
+    Non-YouTube URLs skip client rotation but still get the no-cookies-then
+    -cookies escalation, which is harmless and occasionally unblocks
+    Instagram/Facebook private posts."""
+    is_youtube = "youtube.com" in url or "youtu.be" in url
+    clients = CLIENT_FALLBACKS if is_youtube else [None]
     last_err = None
-    for client_cfg in CLIENT_FALLBACKS:
-        opts = _base_opts(extra)
-        if client_cfg:
-            opts.update(client_cfg)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-            if info and (info.get("formats") or info.get("entries") or info.get("url")):
-                return info
-            last_err = Exception("Extractor returned no formats.")
-        except Exception as e:
-            last_err = e
-        # only YouTube benefits from client rotation — fail fast elsewhere
-        if "youtube.com" not in url and "youtu.be" not in url:
+
+    for use_cookies in (False, True):
+        # no point retrying with cookies if we don't have any
+        if use_cookies and not COOKIE_FILE:
             break
+        for client_cfg in clients:
+            opts = _base_opts(extra, use_cookies=use_cookies)
+            if client_cfg:
+                opts.update(client_cfg)
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                if info and (info.get("formats") or info.get("entries") or info.get("url")):
+                    return info
+                last_err = Exception("Extractor returned no formats.")
+            except Exception as e:
+                last_err = e
     raise last_err
 
 
@@ -404,24 +522,36 @@ def download(req: DownloadRequest):
     # Try default extraction first; on 'Requested format is not available' or
     # bot-check errors, retry. YouTube URLs rotate player clients; every
     # platform gets a final attempt with the loosest possible 'best' selector.
+    # Cookies stay OFF for the first full sweep (a stale cookie forces a
+    # degraded YouTube player that returns no media) and only turn ON for a
+    # final escalation sweep, for genuinely gated content.
     is_youtube = "youtube.com" in req.url or "youtu.be" in req.url
     loosest = "bestaudio/best" if audio_only else (
         "bestvideo+bestaudio/best" if FFMPEG_AVAILABLE else "best")
+    clients = CLIENT_FALLBACKS if is_youtube else [None]
+
     attempts = []
-    for client_cfg in (CLIENT_FALLBACKS if is_youtube else [None]):
-        attempts.append((client_cfg, None))
-    attempts.append((None, loosest))     # last resort: ignore chosen format
+    # sweep 1: no cookies, each client with the chosen format chain
+    for client_cfg in clients:
+        attempts.append((client_cfg, None, False))
+    # then no cookies with the loosest selector (ignore chosen format)
+    attempts.append((None, loosest, False))
+    # sweep 2: same, but WITH cookies — only reached if everything above failed
+    if COOKIE_FILE:
+        for client_cfg in clients:
+            attempts.append((client_cfg, None, True))
+        attempts.append((None, loosest, True))
 
     last_err = None
     downloaded = False
-    for client_cfg, fmt_override in attempts:
+    for client_cfg, fmt_override, use_cookies in attempts:
         extra = dict(base_extra)
         if client_cfg:
             extra.update(client_cfg)
         if fmt_override:
             extra["format"] = fmt_override
         try:
-            with yt_dlp.YoutubeDL(_base_opts(extra)) as ydl:
+            with yt_dlp.YoutubeDL(_base_opts(extra, use_cookies=use_cookies)) as ydl:
                 ydl.extract_info(req.url, download=True)
             downloaded = True
             break

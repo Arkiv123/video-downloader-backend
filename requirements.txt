@@ -1,4 +1,11 @@
 fastapi
 uvicorn[standard]
+# Nightly yt-dlp: YouTube breaks extraction faster than the stable cadence;
+# fixes land on the nightly channel days before a tagged release. The Docker
+# CMD also force-upgrades this on every container start.
 yt-dlp
+# PO-token provider. YouTube (2025+) gates real formats behind proof-of-origin
+# tokens; without this the API returns "confirm you're not a bot" / audio-only
+# / storyboards-only. The bgutil provider mints tokens via a local HTTP server.
+bgutil-ytdlp-pot-provider
 python-multipart
