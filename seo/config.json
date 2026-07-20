@@ -111,6 +111,19 @@
       "faq": [
         ["What format is the audio?", "MP3, extracted from the best stream the track exposes."]
       ]
+    },
+    {
+      "slug": "imdb-movie-identifier",
+      "h1": "IMDb Movie & Show Identifier",
+      "tagline": "Paste any IMDb link and instantly see what it is — title, year, type, poster, and top cast.",
+      "keyword": "IMDb identifier",
+      "placeholder": "Paste an IMDb link — imdb.com/title/tt0111161/",
+      "howto": "Paste an IMDb link in the box above and hit Pull Feed. IMDb hosts no films, so this doesn't download — it identifies the title the link points to and shows the name, year, type, poster, IMDb popularity rank, and top cast, with a link back to the full IMDb page.",
+      "faq": [
+        ["Can I download the movie from IMDb?", "No — IMDb is a catalog and hosts no films. This tool identifies what a link points to (title, year, cast, poster); it doesn't download copyrighted films."],
+        ["What links work?", "Any IMDb title or person link, like imdb.com/title/tt0111161/ or imdb.com/name/nm0000151/. Mobile (m.imdb.com) links work too."],
+        ["Does it work for TV series?", "Yes — series show their running years (e.g. 2011–2019) and are labelled TV Series."]
+      ]
     }
   ]
 }

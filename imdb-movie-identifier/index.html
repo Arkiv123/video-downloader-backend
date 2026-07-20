@@ -4,13 +4,13 @@
 <!-- generated:pseo -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YouTube to MP3 Converter · GOOGLY RANKS</title>
-<meta name="description" content="Pull the audio off any YouTube video and save it as a clean MP3. Free youtube to mp3 — no signup, works in your browser.">
-<link rel="canonical" href="https://googly-ranks.pages.dev/youtube-to-mp3/">
+<title>IMDb Movie &amp; Show Identifier · GOOGLY RANKS</title>
+<meta name="description" content="Paste any IMDb link and instantly see what it is — title, year, type, poster, and top cast. Free IMDb identifier — no signup, works in your browser.">
+<link rel="canonical" href="https://googly-ranks.pages.dev/imdb-movie-identifier/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="YouTube to MP3 Converter · GOOGLY RANKS">
-<meta property="og:description" content="Pull the audio off any YouTube video and save it as a clean MP3. Free youtube to mp3 — no signup, works in your browser.">
-<meta property="og:url" content="https://googly-ranks.pages.dev/youtube-to-mp3/">
+<meta property="og:title" content="IMDb Movie &amp; Show Identifier · GOOGLY RANKS">
+<meta property="og:description" content="Paste any IMDb link and instantly see what it is — title, year, type, poster, and top cast. Free IMDb identifier — no signup, works in your browser.">
+<meta property="og:url" content="https://googly-ranks.pages.dev/imdb-movie-identifier/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What bitrate is the MP3?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 192 kbps, extracted from the best audio track the source carries."}}, {"@type": "Question", "name": "Do I need any software?", "acceptedAnswer": {"@type": "Answer", "text": "No — it runs in your browser, nothing to install."}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Can I download the movie from IMDb?", "acceptedAnswer": {"@type": "Answer", "text": "No — IMDb is a catalog and hosts no films. This tool identifies what a link points to (title, year, cast, poster); it doesn't download copyrighted films."}}, {"@type": "Question", "name": "What links work?", "acceptedAnswer": {"@type": "Answer", "text": "Any IMDb title or person link, like imdb.com/title/tt0111161/ or imdb.com/name/nm0000151/. Mobile (m.imdb.com) links work too."}}, {"@type": "Question", "name": "Does it work for TV series?", "acceptedAnswer": {"@type": "Answer", "text": "Yes — series show their running years (e.g. 2011–2019) and are labelled TV Series."}}]}</script>
 <style>
   /* Landing-only supplements — the SEO prose block below the tool. Everything
      above uses the shared broadcast-deck styles from /styles.css. */
@@ -56,9 +56,9 @@
 
   <!-- hero (page-specific copy) -->
   <header class="hero">
-    <div class="eyebrow">Studio Feed · Grab &amp; Grade · YOUTUBE TO MP3</div>
-    <h1>YouTube to MP3 Converter</h1>
-    <p>Pull the audio off any YouTube video and save it as a clean MP3.</p>
+    <div class="eyebrow">Studio Feed · Grab &amp; Grade · IMDB IDENTIFIER</div>
+    <h1>IMDb Movie &amp; Show Identifier</h1>
+    <p>Paste any IMDb link and instantly see what it is — title, year, type, poster, and top cast.</p>
     <div class="sources">
       <span class="src-chip">YouTube</span>
       <span class="src-chip">TikTok</span>
@@ -74,7 +74,7 @@
   <div class="feed">
     <div class="in-wrap">
       <span class="ch">SRC &#9656;</span>
-      <input id="url" type="url" placeholder="Paste a YouTube link to extract its audio…" autocomplete="off" spellcheck="false">
+      <input id="url" type="url" placeholder="Paste an IMDb link — imdb.com/title/tt0111161/" autocomplete="off" spellcheck="false">
     </div>
     <button class="btn-fetch" id="fetch"><i data-lucide="radio" width="18" height="18"></i>Pull Feed</button>
   </div>
@@ -149,13 +149,15 @@
 
   <!-- SEO prose + FAQ (page-specific, static) -->
   <section class="lp-prose">
-    <h2>How to use this youtube to mp3</h2>
-    <p>Copy the link to the video you want, paste it in the box above, and hit Pull Feed. Every resolution and audio track the source carries is laid out on the board — pick one and grab it. It runs in your browser, nothing to install and no account needed.</p>
-    <details class="lp-faq"><summary>What bitrate is the MP3?</summary><p>Up to 192 kbps, extracted from the best audio track the source carries.</p></details>
-    <details class="lp-faq"><summary>Do I need any software?</summary><p>No — it runs in your browser, nothing to install.</p></details>
+    <h2>How to use this IMDb identifier</h2>
+    <p>Paste an IMDb link in the box above and hit Pull Feed. IMDb hosts no films, so this doesn&#x27;t download — it identifies the title the link points to and shows the name, year, type, poster, IMDb popularity rank, and top cast, with a link back to the full IMDb page.</p>
+    <details class="lp-faq"><summary>Can I download the movie from IMDb?</summary><p>No — IMDb is a catalog and hosts no films. This tool identifies what a link points to (title, year, cast, poster); it doesn&#x27;t download copyrighted films.</p></details>
+    <details class="lp-faq"><summary>What links work?</summary><p>Any IMDb title or person link, like imdb.com/title/tt0111161/ or imdb.com/name/nm0000151/. Mobile (m.imdb.com) links work too.</p></details>
+    <details class="lp-faq"><summary>Does it work for TV series?</summary><p>Yes — series show their running years (e.g. 2011–2019) and are labelled TV Series.</p></details>
   </section>
 
   <nav class="lp-other" aria-label="More downloaders"><a href="/youtube-video-downloader/">YouTube Video Downloader</a>
+    <a href="/youtube-to-mp3/">YouTube to MP3 Converter</a>
     <a href="/tiktok-video-downloader/">TikTok Video Downloader (No Watermark)</a>
     <a href="/instagram-reels-downloader/">Instagram Reels &amp; Video Downloader</a>
     <a href="/twitter-video-downloader/">X / Twitter Video Downloader</a>
@@ -163,8 +165,7 @@
     <a href="/reddit-video-downloader/">Reddit Video Downloader (With Sound)</a>
     <a href="/twitch-clip-downloader/">Twitch Clip &amp; VOD Downloader</a>
     <a href="/vimeo-video-downloader/">Vimeo Video Downloader</a>
-    <a href="/soundcloud-downloader/">SoundCloud Track Downloader</a>
-    <a href="/imdb-movie-identifier/">IMDb Movie &amp; Show Identifier</a></nav>
+    <a href="/soundcloud-downloader/">SoundCloud Track Downloader</a></nav>
 
   <footer class="lp-foot">
     <p>GOOGLY RANKS is a metadata tool for content you own or have the right to

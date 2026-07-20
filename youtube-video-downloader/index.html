@@ -12,124 +12,151 @@
 <meta property="og:description" content="Grab any YouTube video in every resolution it carries — 4K, 1080p, 720p, or audio-only. Free youtube video downloader — no signup, works in your browser.">
 <meta property="og:url" content="https://googly-ranks.pages.dev/youtube-video-downloader/">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b0d10">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<link rel="manifest" href="/manifest.webmanifest">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Can I download 1080p and 4K?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Every resolution the source carries is listed. High-resolution YouTube uses separate video and audio streams, which are merged for you automatically."}}, {"@type": "Question", "name": "Is it free?", "acceptedAnswer": {"@type": "Answer", "text": "Yes, no account and no limits on how many links you pull."}}, {"@type": "Question", "name": "Can I get audio only?", "acceptedAnswer": {"@type": "Answer", "text": "Yes — pick the audio option to save an MP3 of the soundtrack."}}]}</script>
 <style>
-  :root{
-    --bg:#0b0d10; --panel:#14181d; --panel-2:#1b2027; --panel-3:#232a33;
-    --ink:#eef2f6; --faint:#8a97a6; --line:#2a323c; --accent:#ff3b30;
-    --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-6:24px;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font-family:'Space Grotesk',system-ui,sans-serif;line-height:1.55}
-  a{color:var(--accent)}
-  .wrap{max-width:820px;margin:0 auto;padding:var(--sp-6) var(--sp-4) 80px}
-  .rail{display:flex;align-items:center;gap:var(--sp-3);padding-bottom:var(--sp-6);
-    font:600 12px/1 'JetBrains Mono',monospace;letter-spacing:.08em;color:var(--faint)}
-  .wordmark{font-family:Oswald;font-weight:700;letter-spacing:.06em;color:var(--ink)}
-  .wordmark span{color:var(--accent)}
-  .status{display:inline-flex;align-items:center;gap:6px}
-  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
-  .status[data-state=live] .dot{background:#22c55e}
-  .status[data-state=off] .dot{background:var(--accent)}
-  h1{font-family:Oswald;font-weight:700;font-size:clamp(28px,6vw,46px);
-    line-height:1.05;margin:0 0 var(--sp-3);text-transform:uppercase;letter-spacing:.01em}
-  .tagline{color:var(--faint);font-size:17px;margin:0 0 var(--sp-6);max-width:60ch}
-  .feed{display:flex;gap:var(--sp-3);background:var(--panel);border:1px solid var(--line);
-    border-radius:14px;padding:var(--sp-2);flex-wrap:wrap}
-  .in-wrap{flex:1;display:flex;align-items:center;gap:var(--sp-3);padding-left:var(--sp-3);min-width:220px}
-  .ch{font:700 11px/1 'JetBrains Mono',monospace;color:var(--accent);letter-spacing:.1em}
-  input{flex:1;background:transparent;border:0;outline:0;color:var(--ink);
-    font-size:15px;padding:14px 0;min-width:0}
-  input::placeholder{color:var(--faint)}
-  .btn{border:0;border-radius:10px;padding:14px 20px;font-family:Oswald;font-weight:600;
-    letter-spacing:.05em;text-transform:uppercase;cursor:pointer;font-size:14px}
-  .btn-fetch{background:var(--accent);color:#fff}
-  .btn-fetch:disabled{opacity:.5;cursor:not-allowed}
-  .hint{color:var(--faint);font-size:13px;margin:var(--sp-3) 2px}
-  .stage{margin-top:var(--sp-6)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:var(--sp-4)}
-  .msg{color:var(--faint)}
-  .msg b{color:var(--ink)}
-  .opt{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);
-    padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;background:var(--panel-2)}
-  .opt[aria-pressed=true]{border-color:var(--accent);background:var(--panel-3)}
-  .opt .lbl{font-weight:600}
-  .opt .meta{font:600 12px/1 'JetBrains Mono',monospace;color:var(--faint)}
-  .dock{display:flex;align-items:center;gap:var(--sp-3);margin-top:var(--sp-4)}
-  .bar-wrap{flex:1;height:8px;background:var(--panel-3);border-radius:99px;overflow:hidden}
-  .bar{height:100%;width:0;background:var(--accent);transition:width .2s}
-  .btn-air{background:var(--accent);color:#fff}
-  .btn-air:disabled{background:var(--panel-3);color:var(--faint);cursor:not-allowed}
-  .prose{margin-top:56px;color:var(--faint)}
-  .prose h2{font-family:Oswald;color:var(--ink);letter-spacing:.02em;margin:32px 0 10px;font-size:22px}
-  .faq-item{border-top:1px solid var(--line);padding:14px 0}
-  .faq-item summary{cursor:pointer;color:var(--ink);font-weight:600}
-  .faq-item p{margin:10px 0 0}
-  .other{margin-top:40px;display:flex;flex-wrap:wrap;gap:8px}
-  .other a{font:600 12px/1 'JetBrains Mono',monospace;color:var(--faint);text-decoration:none;
-    border:1px solid var(--line);border-radius:99px;padding:8px 12px}
-  .other a:hover{color:var(--ink);border-color:var(--accent)}
-  footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);
-    color:var(--faint);font-size:13px}
-  footer a{color:var(--faint)}
-  [hidden]{display:none !important}
+  /* Landing-only supplements — the SEO prose block below the tool. Everything
+     above uses the shared broadcast-deck styles from /styles.css. */
+  .lp-prose{margin-top:var(--sp-16);max-width:70ch}
+  .lp-prose h2{font-family:var(--disp);text-transform:uppercase;letter-spacing:.03em;
+    color:var(--text);font-size:1.4rem;margin:var(--sp-8) 0 var(--sp-3)}
+  .lp-prose p{color:var(--muted);margin-bottom:var(--sp-3)}
+  .lp-faq{border-top:1px solid var(--line-soft);padding:var(--sp-4) 0}
+  .lp-faq summary{cursor:pointer;color:var(--text);font-weight:600;font-family:var(--disp);
+    text-transform:uppercase;letter-spacing:.02em;font-size:1.02rem}
+  .lp-faq p{margin:var(--sp-3) 0 0}
+  .lp-other{margin-top:var(--sp-12);display:flex;flex-wrap:wrap;gap:8px}
+  .lp-other a{font-family:var(--mono);font-size:0.68rem;font-weight:700;letter-spacing:0.08em;
+    text-transform:uppercase;color:var(--muted);text-decoration:none;
+    border:1px solid var(--line-soft);border-radius:99px;padding:6px 12px;transition:all .16s}
+  .lp-other a:hover{color:var(--lime);border-color:var(--lime-dim)}
+  .lp-foot{margin-top:var(--sp-12);padding-top:var(--sp-4);border-top:1px solid var(--line-soft);
+    color:var(--faint);font-size:0.85rem}
+  .lp-foot a{color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
+
+  <!-- top rail -->
   <div class="rail">
-    <span class="status" id="status" data-state="checking"><span class="dot"></span><span id="statusText">CHECKING</span></span>
-    <a href="/" style="text-decoration:none"><span class="wordmark">GOOGLY <span>RANKS</span></span></a>
+    <span class="status" id="status" data-state="checking" title="Backend status">
+      <span class="dot"></span><span id="statusText">CHECKING</span>
+    </span>
+    <a href="/" style="text-decoration:none;color:inherit"><span class="wordmark">GOOGLY <span>RANKS</span></span></a>
+    <span class="rail-spacer"></span>
+    <span class="clock" id="clock">--:--:--</span>
   </div>
 
-  <h1>YouTube Video Downloader</h1>
-  <p class="tagline">Grab any YouTube video in every resolution it carries — 4K, 1080p, 720p, or audio-only.</p>
+  <!-- hero (page-specific copy) -->
+  <header class="hero">
+    <div class="eyebrow">Studio Feed · Grab &amp; Grade · YOUTUBE VIDEO DOWNLOADER</div>
+    <h1>YouTube Video Downloader</h1>
+    <p>Grab any YouTube video in every resolution it carries — 4K, 1080p, 720p, or audio-only.</p>
+    <div class="sources">
+      <span class="src-chip">YouTube</span>
+      <span class="src-chip">TikTok</span>
+      <span class="src-chip">Instagram</span>
+      <span class="src-chip">X / Twitter</span>
+      <span class="src-chip">Facebook</span>
+      <span class="src-chip">Reddit</span>
+      <span class="src-chip">+1000 more</span>
+    </div>
+  </header>
 
+  <!-- feed input -->
   <div class="feed">
     <div class="in-wrap">
       <span class="ch">SRC &#9656;</span>
       <input id="url" type="url" placeholder="Paste a YouTube link — youtube.com/watch?v=… or youtu.be/…" autocomplete="off" spellcheck="false">
     </div>
-    <button class="btn btn-fetch" id="fetch">Pull Feed</button>
+    <button class="btn-fetch" id="fetch"><i data-lucide="radio" width="18" height="18"></i>Pull Feed</button>
   </div>
-  <p class="hint">Free · no signup · paste a link and hit <b>Enter</b>.</p>
+  <p class="hint">Tip: hit <b>Enter</b> to pull.</p>
 
+  <!-- stage -->
   <div class="stage">
-    <div class="card" id="empty">
-      <p class="msg"><b>Ready.</b> Paste a link above to list every quality it carries.</p>
+    <div class="empty" id="empty">
+      <i data-lucide="satellite-dish" width="46" height="46"></i>
+      <h3>No feed on air</h3>
+      <p>Paste a link above and pull it in. The board fills with every quality your source offers, ready to grab.</p>
     </div>
-    <div class="card" id="error" hidden><p class="msg"><b>Feed dropped.</b> <span id="errtext"></span></p></div>
-    <div class="card" id="loading" hidden><p class="msg">Reading feed…</p></div>
-    <div id="results" hidden>
-      <div class="card">
-        <p class="msg"><b id="title">—</b></p>
-        <div id="opts"></div>
+
+    <div class="error" id="error" hidden>
+      <i data-lucide="signal-zero" width="20" height="20"></i>
+      <div class="msg"><b>Feed dropped</b><span id="errtext"></span></div>
+    </div>
+
+    <div class="program" id="loading" hidden>
+      <div class="monitor"><div class="sk sk-mon"></div></div>
+      <div>
+        <div class="board-head"><h3>Reading feed…</h3></div>
+        <div class="sk-board">
+          <div class="sk sk-row"></div><div class="sk sk-row"></div>
+          <div class="sk sk-row"></div><div class="sk sk-row"></div>
+        </div>
       </div>
-      <div class="dock" id="dock" hidden>
-        <div class="bar-wrap"><div class="bar" id="bar"></div></div>
-        <span class="meta" id="ro-pct">0%</span>
-        <button class="btn btn-air" id="air" disabled>Download</button>
+    </div>
+
+    <div class="program" id="results" hidden>
+      <div class="monitor">
+        <div class="thumb">
+          <img id="thumb" alt="">
+          <div class="scan"></div>
+          <span class="live"><span class="d"></span>LIVE</span>
+          <span class="dur" id="dur">0:00</span>
+        </div>
+        <div class="meta">
+          <div class="lbl">Now On Air</div>
+          <h2 id="title">—</h2>
+          <div class="stats">
+            <div class="stat"><span>Tracks</span><b id="s-tracks">0</b></div>
+            <div class="stat"><span>Best</span><b id="s-best">—</b></div>
+            <div class="stat"><span>Runtime</span><b id="s-run">0:00</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="board-head">
+          <h3>Grade Board</h3>
+          <span class="count" id="count">0 signals</span>
+        </div>
+        <div class="seg" role="group" aria-label="Filter">
+          <button data-filter="all" aria-pressed="true">All</button>
+          <button data-filter="video" aria-pressed="false">Video</button>
+          <button data-filter="audio" aria-pressed="false">Audio</button>
+        </div>
+        <div class="board" id="board"></div>
       </div>
     </div>
   </div>
 
-  <div class="prose">
+  <div class="dock" id="dock" hidden>
+    <div class="tally"><span class="bulb"></span><span id="tally-label">Standby</span></div>
+    <div class="readout">
+      <div class="top"><span id="ro-name">Select a grade</span><b id="ro-pct">0%</b></div>
+      <div class="prog"><i id="bar"></i></div>
+    </div>
+    <button class="btn-air" id="air" disabled><i data-lucide="download" width="20" height="20"></i>On Air</button>
+  </div>
+
+  <!-- SEO prose + FAQ (page-specific, static) -->
+  <section class="lp-prose">
     <h2>How to use this youtube video downloader</h2>
-    <p>Copy the link to the video you want, paste it in the box above, and press
-    Pull Feed. Every resolution and audio track the source carries is listed —
-    pick one and hit Download. It runs entirely in your browser; nothing is
-    installed and no account is needed.</p>
-      <details class="faq-item"><summary>Can I download 1080p and 4K?</summary><p>Yes. Every resolution the source carries is listed. High-resolution YouTube uses separate video and audio streams, which are merged for you automatically.</p></details>
-      <details class="faq-item"><summary>Is it free?</summary><p>Yes, no account and no limits on how many links you pull.</p></details>
-      <details class="faq-item"><summary>Can I get audio only?</summary><p>Yes — pick the audio option to save an MP3 of the soundtrack.</p></details>
-  </div>
+    <p>Copy the link to the video you want, paste it in the box above, and hit Pull Feed. Every resolution and audio track the source carries is laid out on the board — pick one and grab it. It runs in your browser, nothing to install and no account needed.</p>
+    <details class="lp-faq"><summary>Can I download 1080p and 4K?</summary><p>Yes. Every resolution the source carries is listed. High-resolution YouTube uses separate video and audio streams, which are merged for you automatically.</p></details>
+    <details class="lp-faq"><summary>Is it free?</summary><p>Yes, no account and no limits on how many links you pull.</p></details>
+    <details class="lp-faq"><summary>Can I get audio only?</summary><p>Yes — pick the audio option to save an MP3 of the soundtrack.</p></details>
+  </section>
 
-  <div class="other"><a href="/youtube-to-mp3/">YouTube to MP3 Converter</a>
+  <nav class="lp-other" aria-label="More downloaders"><a href="/youtube-to-mp3/">YouTube to MP3 Converter</a>
     <a href="/tiktok-video-downloader/">TikTok Video Downloader (No Watermark)</a>
     <a href="/instagram-reels-downloader/">Instagram Reels &amp; Video Downloader</a>
     <a href="/twitter-video-downloader/">X / Twitter Video Downloader</a>
@@ -137,98 +164,18 @@
     <a href="/reddit-video-downloader/">Reddit Video Downloader (With Sound)</a>
     <a href="/twitch-clip-downloader/">Twitch Clip &amp; VOD Downloader</a>
     <a href="/vimeo-video-downloader/">Vimeo Video Downloader</a>
-    <a href="/soundcloud-downloader/">SoundCloud Track Downloader</a></div>
+    <a href="/soundcloud-downloader/">SoundCloud Track Downloader</a>
+    <a href="/imdb-movie-identifier/">IMDb Movie &amp; Show Identifier</a></nav>
 
-  <footer>
+  <footer class="lp-foot">
     <p>GOOGLY RANKS is a metadata tool for content you own or have the right to
     download. Respect the rights of creators and each platform's terms.
-    <a href="/">Home</a></p>
+    &nbsp;·&nbsp; <a href="/">Home</a></p>
   </footer>
 </div>
 
-<script>
-const API_BASE = "https://video-downloader-backend-79wc.onrender.com";
-const $ = s => document.querySelector(s);
-const state = {data:null, selected:null};
-function fmtSize(b){ if(!b) return ''; const u=['B','KB','MB','GB']; let i=0; while(b>=1024&&i<u.length-1){b/=1024;i++;} return b.toFixed(1)+u[i]; }
-
-async function checkBackend(){
-  const st=$('#status'), t=$('#statusText');
-  try{ const c=new AbortController(); setTimeout(()=>c.abort(),8000);
-    const r=await fetch(`${API_BASE}/`,{signal:c.signal});
-    st.dataset.state=r.ok?'live':'off'; t.textContent=r.ok?'LIVE':'OFF';
-  }catch(e){ st.dataset.state='off'; t.textContent='OFF'; }
-}
-
-function show(v){ ['empty','error','loading','results'].forEach(x=>$('#'+x).hidden=x!==v); }
-
-function render(){
-  const box=$('#opts'); box.innerHTML='';
-  (state.data.formats||[]).forEach(f=>{
-    const el=document.createElement('div'); el.className='opt'; el.setAttribute('aria-pressed','false');
-    el.innerHTML=`<span class="lbl">${f.label}</span><span class="meta">${f.filesize?fmtSize(f.filesize):(f.type==='audio'?'audio':'video')}</span>`;
-    el.onclick=()=>{ state.selected=f.format_id;
-      document.querySelectorAll('.opt').forEach(o=>o.setAttribute('aria-pressed','false'));
-      el.setAttribute('aria-pressed','true'); $('#dock').hidden=false; $('#air').disabled=false; };
-    box.appendChild(el);
-  });
-}
-
-async function pull(){
-  const url=$('#url').value.trim(); if(!url){ $('#url').focus(); return; }
-  state.selected=null; $('#fetch').disabled=true; show('loading');
-  try{
-    const r=await fetch(`${API_BASE}/formats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
-    const j=await r.json();
-    if(!r.ok) throw new Error(j.detail||`HTTP ${r.status}`);
-    if(!j.formats||!j.formats.length) throw new Error('No downloadable formats found.');
-    state.data=j; $('#title').textContent=j.title||'Untitled'; show('results'); render(); checkBackend();
-  }catch(e){ $('#errtext').textContent=(e.message||'').replace(/\u001b\[[0-9;]*m/g,''); show('error'); }
-  finally{ $('#fetch').disabled=false; }
-}
-
-async function saveResponse(r, fallbackName){
-  const bar=$('#bar'), pct=$('#ro-pct'); const total=+r.headers.get('content-length')||0;
-  const reader=r.body.getReader(); const chunks=[]; let got=0;
-  while(true){ const {done,value}=await reader.read(); if(done) break; chunks.push(value); got+=value.length;
-    if(total){ const p=Math.min(100,Math.round(got/total*100)); bar.style.width=p+'%'; pct.textContent=p+'%'; }
-    else { pct.textContent=fmtSize(got); bar.style.width='60%'; } }
-  bar.style.width='100%'; pct.textContent='100%';
-  let name=fallbackName; const cd=r.headers.get('content-disposition');
-  const m=cd&&/filename[^;=\n]*=(?:UTF-8''|")?([^";\n]+)/i.exec(cd);
-  if(m){ try{ name=decodeURIComponent(m[1]); }catch(e){ name=m[1]; } }
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(chunks)); a.download=name;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-}
-
-async function goLive(){
-  if(!state.selected||!state.data) return;
-  const air=$('#air'); air.disabled=true; $('#bar').style.width='0%'; $('#ro-pct').textContent='0%';
-  const sel=state.data.formats.find(x=>x.format_id===state.selected);
-  let name=(state.data.title||'video').replace(/[\\/:*?"<>|]/g,'').slice(0,80)+'.'+((sel&&sel.type==='audio')?(sel.ext||'m4a'):((sel&&sel.ext)||'mp4'));
-  try{
-    if(sel&&sel.direct_url){ try{ const dr=await fetch(sel.direct_url);
-      if(dr.ok&&dr.body){ await saveResponse(dr,name); return; } throw 0; }catch(_){} }
-    const body=JSON.stringify({url:$('#url').value.trim(),format_id:state.selected,
-      audio_only:!!(sel&&sel.type==='audio'),height:(sel&&sel.type==='video'&&sel.height)?sel.height:null});
-    let r,tries=0;
-    while(true){ r=await fetch(`${API_BASE}/download`,{method:'POST',headers:{'Content-Type':'application/json'},body});
-      if(r.status!==503||tries>=4) break; tries++; await new Promise(x=>setTimeout(x,1500*tries)); }
-    if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.detail||`HTTP ${r.status}`); }
-    await saveResponse(r,name);
-  }catch(e){ $('#errtext').textContent='Download stalled. '+(e.message||''); show('error'); }
-  finally{ air.disabled=false; }
-}
-
-$('#fetch').onclick=pull;
-$('#url').addEventListener('keydown',e=>{ if(e.key==='Enter') pull(); });
-$('#air').onclick=goLive;
-let warmed=false;
-function warm(){ if(warmed) return; warmed=true; fetch(`${API_BASE}/`).then(checkBackend).catch(()=>{}); setTimeout(()=>warmed=false,60000); }
-$('#url').addEventListener('focus',warm);
-$('#url').addEventListener('input',warm);
-checkBackend();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
-</script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.383.0/dist/umd/lucide.min.js"></script>
+<script>document.addEventListener("DOMContentLoaded",()=>window.lucide&&lucide.createIcons())</script>
+<script src="/app.js"></script>
 </body>
 </html>

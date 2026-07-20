@@ -847,6 +847,94 @@ def download(req: DownloadRequest):
     )
 
 
+# ------------------------- IMDb identify -------------------------
+# Identify (NOT download) a movie/series/person from an IMDb link. IMDb hosts no
+# films and hard-blocks server-side HTML scraping, so we don't try to download
+# anything — we resolve the title's metadata (name, year, type, poster, top
+# cast) so the user can identify what a link points to. Source is IMDb's own
+# keyless suggestion API (the one their search box uses); it's fast and stable.
+_IMDB_ID_RE = re.compile(r"(tt\d{6,9}|nm\d{6,9}|co\d{6,9})", re.I)
+
+# Map IMDb's terse "qid" codes to human labels.
+_IMDB_KIND = {
+    "movie": "Movie", "tvMovie": "TV Movie", "tvSeries": "TV Series",
+    "tvMiniSeries": "TV Mini-Series", "tvEpisode": "TV Episode",
+    "tvSpecial": "TV Special", "video": "Video", "videoGame": "Video Game",
+    "short": "Short", "tvShort": "TV Short", "name": "Person",
+}
+
+
+def _imdb_poster(img):
+    """IMDb image URLs carry a resize segment (._V1_...). Strip it for the
+    original, or request a sane thumbnail width."""
+    if not img:
+        return None
+    url = img.get("imageUrl") if isinstance(img, dict) else (img[0] if isinstance(img, (list, tuple)) else img)
+    if not url:
+        return None
+    # e.g. ..._V1_.jpg  ->  ..._V1_QL75_UX400_.jpg (400px wide, good enough)
+    return re.sub(r"\._V1_.*?(\.\w+)$", r"._V1_QL75_UX400_\1", url)
+
+
+class IdentifyRequest(BaseModel):
+    url: str
+
+
+@app.post("/identify")
+def identify(req: IdentifyRequest):
+    """Resolve an IMDb link to its metadata. Returns title, year, kind, poster,
+    and top cast — enough to identify the movie/series/person. Does not download."""
+    m = _IMDB_ID_RE.search(req.url or "")
+    if not m:
+        raise HTTPException(
+            status_code=400,
+            detail="That doesn't look like an IMDb link. Paste a URL like "
+                   "imdb.com/title/tt0111161/",
+        )
+    imdb_id = m.group(1).lower()
+    kind_path = "n" if imdb_id.startswith("nm") else "t"
+    api = f"https://v2.sg.media-imdb.com/suggestion/{kind_path}/{imdb_id}.json"
+    try:
+        import requests
+        r = requests.get(
+            api,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach IMDb: {e}")
+
+    # The suggestion API returns candidates in "d"; find the exact id match.
+    entry = None
+    for cand in (data.get("d") or []):
+        if str(cand.get("id", "")).lower() == imdb_id:
+            entry = cand
+            break
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No IMDb title found for that link.")
+
+    qid = entry.get("qid")
+    if imdb_id.startswith("nm"):
+        kind = "Person"                       # people carry no qid
+    else:
+        kind = _IMDB_KIND.get(qid, (qid or "Title").capitalize())
+    return {
+        "source": "imdb",
+        "imdb_id": imdb_id,
+        "imdb_url": f"https://www.imdb.com/title/{imdb_id}/"
+                    if kind_path == "t" else f"https://www.imdb.com/name/{imdb_id}/",
+        "title": entry.get("l"),
+        "kind": kind,
+        "year": entry.get("y"),
+        "year_range": entry.get("yr"),          # e.g. "2016-2022" for series
+        "poster": _imdb_poster(entry.get("i")),
+        "stars": entry.get("s"),                # top cast / known-for line
+        "rank": entry.get("rank"),              # IMDb popularity rank
+    }
+
+
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "Video downloader API is running.", "cookies": bool(COOKIE_FILE)}
