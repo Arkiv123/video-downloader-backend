@@ -87,6 +87,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GOOGLY RANKS · Broadcast Deck</title>
+<meta name="description" content="Paste any link — YouTube, TikTok, Instagram, X, Reddit and 1000+ more — and grab the video or audio in every quality it carries. Free, no signup.">
+<link rel="canonical" href="https://googly-ranks.pages.dev/">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b0d10">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -740,6 +745,9 @@ $('#url').addEventListener('input', warm);
 checkBackend();
 setInterval(checkBackend, 30000);
 if(window.lucide) lucide.createIcons();
+/* PWA: register the shell service worker so repeat visits are instant and the
+   app is installable. It never caches media or API calls (see sw.js). */
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 </script>
 </body>
 </html>

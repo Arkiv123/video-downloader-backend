@@ -1,0 +1,18 @@
+{
+  "name": "Googly Ranks — Video Downloader",
+  "short_name": "Googly Ranks",
+  "description": "Paste any link and grab the video or audio in every quality it carries. Free, no signup.",
+  "start_url": "/?pwa=1",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

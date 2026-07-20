@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://googly-ranks.pages.dev/sitemap.xml

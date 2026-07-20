@@ -1,0 +1,116 @@
+{
+  "site": {
+    "brand": "GOOGLY RANKS",
+    "origin": "https://googly-ranks.pages.dev",
+    "api_base": "https://video-downloader-backend-79wc.onrender.com"
+  },
+  "pages": [
+    {
+      "slug": "youtube-video-downloader",
+      "h1": "YouTube Video Downloader",
+      "tagline": "Grab any YouTube video in every resolution it carries — 4K, 1080p, 720p, or audio-only.",
+      "keyword": "youtube video downloader",
+      "placeholder": "Paste a YouTube link — youtube.com/watch?v=… or youtu.be/…",
+      "faq": [
+        ["Can I download 1080p and 4K?", "Yes. Every resolution the source carries is listed. High-resolution YouTube uses separate video and audio streams, which are merged for you automatically."],
+        ["Is it free?", "Yes, no account and no limits on how many links you pull."],
+        ["Can I get audio only?", "Yes — pick the audio option to save an MP3 of the soundtrack."]
+      ]
+    },
+    {
+      "slug": "youtube-to-mp3",
+      "h1": "YouTube to MP3 Converter",
+      "tagline": "Pull the audio off any YouTube video and save it as a clean MP3.",
+      "keyword": "youtube to mp3",
+      "placeholder": "Paste a YouTube link to extract its audio…",
+      "faq": [
+        ["What bitrate is the MP3?", "Up to 192 kbps, extracted from the best audio track the source carries."],
+        ["Do I need any software?", "No — it runs in your browser, nothing to install."]
+      ]
+    },
+    {
+      "slug": "tiktok-video-downloader",
+      "h1": "TikTok Video Downloader (No Watermark)",
+      "tagline": "Save TikTok videos straight to your device — most download without a watermark.",
+      "keyword": "tiktok video downloader no watermark",
+      "placeholder": "Paste a TikTok link — tiktok.com/@user/video/…",
+      "faq": [
+        ["Is there a watermark?", "Most TikTok sources expose a clean, watermark-free stream, which is what gets saved when available."],
+        ["Can I save the sound?", "Yes — choose the audio option to keep just the track."]
+      ]
+    },
+    {
+      "slug": "instagram-reels-downloader",
+      "h1": "Instagram Reels & Video Downloader",
+      "tagline": "Save Instagram Reels, feed videos, and clips in full quality.",
+      "keyword": "instagram reels downloader",
+      "placeholder": "Paste an Instagram Reel or post link…",
+      "faq": [
+        ["Does it work for private posts?", "Only public content can be read without a login."],
+        ["What quality do I get?", "The full resolution the Reel was uploaded in."]
+      ]
+    },
+    {
+      "slug": "twitter-video-downloader",
+      "h1": "X / Twitter Video Downloader",
+      "tagline": "Download videos and GIFs from X (Twitter) posts in one paste.",
+      "keyword": "twitter video downloader",
+      "placeholder": "Paste an X / Twitter post link…",
+      "faq": [
+        ["Can I convert a Twitter video to MP4?", "Yes — X videos are saved as standard MP4 files."],
+        ["Does it work on mobile?", "Yes, it runs in any modern mobile browser."]
+      ]
+    },
+    {
+      "slug": "facebook-video-downloader",
+      "h1": "Facebook Video Downloader",
+      "tagline": "Save public Facebook videos and Reels in HD.",
+      "keyword": "facebook video downloader",
+      "placeholder": "Paste a public Facebook video link…",
+      "faq": [
+        ["What about HD?", "If the video was posted in HD, the HD option appears in the list."],
+        ["Private videos?", "Only public videos can be read."]
+      ]
+    },
+    {
+      "slug": "reddit-video-downloader",
+      "h1": "Reddit Video Downloader (With Sound)",
+      "tagline": "Download Reddit videos with the audio track merged in — no missing sound.",
+      "keyword": "reddit video downloader with sound",
+      "placeholder": "Paste a Reddit post link — reddit.com/r/…",
+      "faq": [
+        ["Why do other tools lose the sound?", "Reddit hosts video and audio separately. They get merged for you so the saved file has sound."]
+      ]
+    },
+    {
+      "slug": "twitch-clip-downloader",
+      "h1": "Twitch Clip & VOD Downloader",
+      "tagline": "Save Twitch clips and past broadcasts to watch offline.",
+      "keyword": "twitch clip downloader",
+      "placeholder": "Paste a Twitch clip or VOD link…",
+      "faq": [
+        ["Can I download a full VOD?", "Yes, as long as the broadcast has ended and is available as a recording."]
+      ]
+    },
+    {
+      "slug": "vimeo-video-downloader",
+      "h1": "Vimeo Video Downloader",
+      "tagline": "Download public Vimeo videos in the best available quality.",
+      "keyword": "vimeo video downloader",
+      "placeholder": "Paste a Vimeo link — vimeo.com/…",
+      "faq": [
+        ["Password-protected videos?", "Only publicly viewable videos can be read."]
+      ]
+    },
+    {
+      "slug": "soundcloud-downloader",
+      "h1": "SoundCloud Track Downloader",
+      "tagline": "Save SoundCloud tracks as audio files for offline listening.",
+      "keyword": "soundcloud downloader",
+      "placeholder": "Paste a SoundCloud track link…",
+      "faq": [
+        ["What format is the audio?", "MP3, extracted from the best stream the track exposes."]
+      ]
+    }
+  ]
+}
