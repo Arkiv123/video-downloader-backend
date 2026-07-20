@@ -507,7 +507,8 @@ async function checkBackend(){
   setStatus('checking','CHECKING');
   try{
     const ctrl = new AbortController();
-    const t = setTimeout(()=>ctrl.abort(), 8000);
+    // cold starts on the free tier can take up to ~60s to answer
+    const t = setTimeout(()=>ctrl.abort(), 60000);
     const r = await fetch(`${API_BASE}/`, {signal:ctrl.signal});
     clearTimeout(t);
     setStatus(r.ok ? 'live' : 'off', r.ok ? '● REC · LIVE' : 'OFF AIR');
@@ -629,15 +630,25 @@ async function goLive(){
   bar.style.width='0%'; pct.textContent='0%';
   try{
     const sel = state.data.formats.find(x=>x.format_id===state.selected);
-    const r = await fetch(`${API_BASE}/download`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        url:$('#url').value.trim(),
-        format_id:state.selected,
-        audio_only: !!(sel && sel.type==='audio'),
-        height: (sel && sel.type==='video' && sel.height) ? sel.height : null
-      })
+    const body = JSON.stringify({
+      url:$('#url').value.trim(),
+      format_id:state.selected,
+      audio_only: !!(sel && sel.type==='audio'),
+      height: (sel && sel.type==='video' && sel.height) ? sel.height : null
     });
+    // The backend caps concurrent downloads and returns 503 when the box is
+    // momentarily saturated. Retry a few times with backoff so a busy spike
+    // reads as "queued", not a failure.
+    let r, tries=0;
+    while(true){
+      r = await fetch(`${API_BASE}/download`,{
+        method:'POST', headers:{'Content-Type':'application/json'}, body
+      });
+      if(r.status!==503 || tries>=4) break;
+      tries++;
+      $('#tally-label').textContent = 'Queued…';
+      await new Promise(res=>setTimeout(res, 1500*tries));
+    }
     if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.detail||`HTTP ${r.status}`); }
     const total = +r.headers.get('content-length') || 0;
     const reader = r.body.getReader(); const chunks=[]; let got=0;
@@ -673,6 +684,18 @@ $('#fetch').onclick=pull;
 $('#url').addEventListener('keydown',e=>{ if(e.key==='Enter') pull(); });
 $('#air').onclick=goLive;
 $('#status').onclick=checkBackend;
+
+/* pre-warm: the free-tier backend sleeps when idle and takes ~30-60s to wake.
+   Ping it the moment the user engages the URL box (focus or first input) so
+   it's already awake by the time they hit Pull Feed — hides most cold-start. */
+let warmed=false;
+function warm(){
+  if(warmed) return; warmed=true;
+  fetch(`${API_BASE}/`).then(()=>checkBackend()).catch(()=>{});
+  setTimeout(()=>{ warmed=false; }, 60000); // allow re-warm after a minute idle
+}
+$('#url').addEventListener('focus', warm);
+$('#url').addEventListener('input', warm);
 
 /* boot */
 checkBackend();

@@ -20,6 +20,9 @@ import glob
 import shutil
 import hashlib
 import json
+import time
+import tempfile
+import threading
 
 app = FastAPI(title="Video Downloader API")
 
@@ -30,6 +33,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+def _enlarge_threadpool():
+    """Sync endpoints run in Starlette's anyio threadpool. Enlarge it so that
+    in-flight downloads (which occupy a thread each while yt-dlp runs) can't
+    starve quick /formats and health checks. The download semaphore, not this
+    pool, is what actually caps heavy work."""
+    try:
+        import anyio
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        limiter.total_tokens = int(os.environ.get("THREADPOOL_SIZE", "80"))
+    except Exception:
+        pass
+
 DOWNLOAD_DIR = "downloads"
 CACHE_DIR = "cache"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -37,6 +54,58 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 CACHE_INDEX_PATH = os.path.join(CACHE_DIR, "_index.json")
 MAX_CACHE_BYTES = 2 * 1024 * 1024 * 1024   # keep the cache under ~2 GB
+
+# Serializes reads/writes to the on-disk cache index so concurrent downloads
+# can't corrupt _index.json (which would cause silent cache misses and needless
+# re-downloads). In-process lock only; fine because we run a single uvicorn
+# worker on the free tier.
+_INDEX_LOCK = threading.Lock()
+
+# --- Extraction memo. Resolving a YouTube URL (PO-token mint + Deno signature
+#     solve + client rotation) is the slow part, and today it runs TWICE: once
+#     in /formats, again in /download. We stash the full sanitized info dict
+#     here keyed by URL, so /download can reuse it via download_with_info_file
+#     and skip the whole handshake. Entries are short-lived: the resolved media
+#     URLs YouTube hands back are time-limited (usually ~6h), so we expire well
+#     before that to avoid handing yt-dlp a dead URL.
+_INFO_MEMO = {}
+_INFO_MEMO_LOCK = threading.Lock()
+_INFO_TTL_SECONDS = 60 * 20        # 20 min: comfortably inside YouTube's URL life
+_INFO_MEMO_MAX = 200               # cap entries so memory can't grow unbounded
+
+# --- Download concurrency valve. Each active download can spawn many sockets
+#     and burn CPU (merabuffer/ffmpeg). On a tiny free-tier box, letting an
+#     unbounded number run at once OOM-crashes the whole server — which stalls
+#     EVERYONE. Instead we admit a bounded number concurrently; the rest queue
+#     for a slot (fast, since most time is network I/O). Tunable via env so you
+#     can raise it for free when you move to a bigger box, no redeploy of logic.
+MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", "4"))
+_DOWNLOAD_SLOTS = threading.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+# How long a queued download waits for a free slot before we tell the client
+# to retry. Prevents threads from blocking forever under a spike (which would
+# starve /formats and jam the whole site).
+_SLOT_WAIT_SECONDS = int(os.environ.get("SLOT_WAIT_SECONDS", "90"))
+
+
+def _memo_get(url):
+    now = time.time()
+    with _INFO_MEMO_LOCK:
+        entry = _INFO_MEMO.get(url)
+        if entry and now - entry[0] <= _INFO_TTL_SECONDS:
+            return entry[1]
+        if entry:
+            _INFO_MEMO.pop(url, None)
+    return None
+
+
+def _memo_put(url, info):
+    now = time.time()
+    with _INFO_MEMO_LOCK:
+        # evict expired + oldest entries when over the cap
+        if len(_INFO_MEMO) >= _INFO_MEMO_MAX:
+            for k in sorted(_INFO_MEMO, key=lambda k: _INFO_MEMO[k][0])[:_INFO_MEMO_MAX // 4 + 1]:
+                _INFO_MEMO.pop(k, None)
+        _INFO_MEMO[url] = (now, info)
 
 # --- Cookies. YouTube on a cloud server often needs a logged-in cookie file to
 #     get past "confirm you're not a bot". We look in two places:
@@ -234,19 +303,28 @@ class DownloadRequest(BaseModel):
 
 # ------------------------- cache helpers -------------------------
 def _load_index():
-    try:
-        with open(CACHE_INDEX_PATH, "r") as fh:
-            return json.load(fh)
-    except Exception:
-        return {}
+    with _INDEX_LOCK:
+        try:
+            with open(CACHE_INDEX_PATH, "r") as fh:
+                return json.load(fh)
+        except Exception:
+            return {}
 
 
 def _save_index(idx):
-    try:
-        with open(CACHE_INDEX_PATH, "w") as fh:
-            json.dump(idx, fh)
-    except Exception:
-        pass
+    # Atomic write: dump to a temp file in the same dir, then os.replace so a
+    # concurrent reader never sees a half-written (corrupt) index.
+    with _INDEX_LOCK:
+        try:
+            fd, tmp = tempfile.mkstemp(dir=CACHE_DIR, suffix=".tmp")
+            with os.fdopen(fd, "w") as fh:
+                json.dump(idx, fh)
+            os.replace(tmp, CACHE_INDEX_PATH)
+        except Exception:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
 
 
 def _cache_key(url, format_id, audio_only):
@@ -434,6 +512,14 @@ def get_formats(req: URLRequest):
             raise HTTPException(status_code=400, detail="No downloadable media found at this URL.")
         info = entries[0]
 
+    # Stash the resolved info so /download can skip a second full extraction
+    # (the slow PO-token + signature handshake). sanitize_info makes it safe to
+    # round-trip through JSON, which is how download_with_info_file consumes it.
+    try:
+        _memo_put(req.url, yt_dlp.YoutubeDL.sanitize_info(info))
+    except Exception:
+        pass
+
     return {
         "title": info.get("title"),
         "thumbnail": info.get("thumbnail"),
@@ -479,52 +565,68 @@ def _build_format_chain(req, audio_only):
 
 
 # ------------------------- download -------------------------
-@app.post("/download")
-def download(req: DownloadRequest):
-    audio_only = req.audio_only or req.format_id == "audio-mp3"
-    key = _cache_key(req.url, req.format_id, audio_only)
+# Per-download parallelism. High connection counts saturate the available pipe
+# and beat per-connection throttling (good for single-user speed); the download
+# semaphore above bounds how many run at once so the box can't be overwhelmed.
+# Both are env-tunable so you can scale up on a bigger host without code edits.
+_FRAG_CONNECTIONS = int(os.environ.get("FRAG_CONNECTIONS", "16"))
+_ARIA_CONNECTIONS = os.environ.get("ARIA_CONNECTIONS", "16")
 
-    idx = _load_index()
-    cached = idx.get(key)
-    if cached and os.path.exists(cached):
-        return FileResponse(
-            path=cached,
-            filename=os.path.basename(cached).split("_", 1)[-1],
-            media_type="application/octet-stream",
-            headers={"X-Cache": "HIT"},
-        )
 
-    job_id = str(uuid.uuid4())[:8]
-    outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title)s.%(ext)s")
-
+def _make_base_extra(req, audio_only, outtmpl):
+    """yt-dlp options shared by the fast path and the full-extraction sweep."""
     base_extra = {
         "outtmpl": outtmpl,
         "format": _build_format_chain(req, audio_only),
-        "concurrent_fragment_downloads": 16,
+        "concurrent_fragment_downloads": _FRAG_CONNECTIONS,
         "restrictfilenames": True,
     }
-
     if not audio_only and FFMPEG_AVAILABLE:
         base_extra["merge_output_format"] = "mp4"
+        # stream-copy merge (no re-encode) + move moov atom to the front so the
+        # file starts playing before it's fully downloaded — no quality loss.
         base_extra["postprocessor_args"] = {"merger": ["-movflags", "+faststart"]}
-
     if shutil.which("aria2c"):
         base_extra["external_downloader"] = "aria2c"
-        base_extra["external_downloader_args"] = ["-x", "16", "-s", "16", "-k", "1M"]
-
+        base_extra["external_downloader_args"] = [
+            "-x", _ARIA_CONNECTIONS, "-s", _ARIA_CONNECTIONS, "-k", "1M"
+        ]
     if audio_only and FFMPEG_AVAILABLE:
         base_extra["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
             "preferredquality": "192",
         }]
+    return base_extra
 
-    # Try default extraction first; on 'Requested format is not available' or
-    # bot-check errors, retry. YouTube URLs rotate player clients; every
-    # platform gets a final attempt with the loosest possible 'best' selector.
-    # Cookies stay OFF for the first full sweep (a stale cookie forces a
-    # degraded YouTube player that returns no media) and only turn ON for a
-    # final escalation sweep, for genuinely gated content.
+
+def _fast_download_from_memo(url, base_extra):
+    """Fast path: reuse the info dict resolved in /formats and download it via
+    download_with_info_file, skipping the entire re-extraction (PO-token mint +
+    signature solve + client rotation). Returns True on success. Any failure
+    (expired URLs, stale memo) returns False so the caller runs the full sweep."""
+    info = _memo_get(url)
+    if not info:
+        return False
+    fd, info_path = tempfile.mkstemp(dir=DOWNLOAD_DIR, suffix=".info.json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(info, fh)
+        with yt_dlp.YoutubeDL(_base_opts(base_extra, use_cookies=False)) as ydl:
+            ydl.download_with_info_file(info_path)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            os.remove(info_path)
+        except Exception:
+            pass
+
+
+def _full_download_sweep(req, base_extra, audio_only):
+    """Full extraction + download with the client/cookie fallback ladder.
+    Used when the fast path isn't available or its URLs have expired."""
     is_youtube = "youtube.com" in req.url or "youtu.be" in req.url
     loosest = "bestaudio/best" if audio_only else (
         "bestvideo+bestaudio/best" if FFMPEG_AVAILABLE else "best")
@@ -543,7 +645,6 @@ def download(req: DownloadRequest):
         attempts.append((None, loosest, True))
 
     last_err = None
-    downloaded = False
     for client_cfg, fmt_override, use_cookies in attempts:
         extra = dict(base_extra)
         if client_cfg:
@@ -553,16 +654,56 @@ def download(req: DownloadRequest):
         try:
             with yt_dlp.YoutubeDL(_base_opts(extra, use_cookies=use_cookies)) as ydl:
                 ydl.extract_info(req.url, download=True)
-            downloaded = True
-            break
+            return True, None
         except Exception as e:
             last_err = e
+    return False, last_err
+
+
+@app.post("/download")
+def download(req: DownloadRequest):
+    audio_only = req.audio_only or req.format_id == "audio-mp3"
+    key = _cache_key(req.url, req.format_id, audio_only)
+
+    idx = _load_index()
+    cached = idx.get(key)
+    if cached and os.path.exists(cached):
+        return FileResponse(
+            path=cached,
+            filename=os.path.basename(cached).split("_", 1)[-1],
+            media_type="application/octet-stream",
+            headers={"X-Cache": "HIT"},
+        )
+
+    job_id = str(uuid.uuid4())[:8]
+    outtmpl = os.path.join(DOWNLOAD_DIR, f"{job_id}_%(title)s.%(ext)s")
+    base_extra = _make_base_extra(req, audio_only, outtmpl)
+
+    # Concurrency valve: bound how many downloads run at once so a traffic
+    # spike can't OOM/CPU-starve the box (a crash would stall EVERY user).
+    # Queued requests wait up to _SLOT_WAIT_SECONDS for a slot; if the box is
+    # still saturated we return 503 so the caller can retry, rather than pinning
+    # a worker thread forever (which would starve /formats and jam the site).
+    last_err = None
+    if not _DOWNLOAD_SLOTS.acquire(timeout=_SLOT_WAIT_SECONDS):
+        raise HTTPException(
+            status_code=503,
+            detail="Server is busy handling other downloads. Please retry in a moment.",
+        )
+    try:
+        # Fast path first (reuses the /formats extraction), then the full sweep.
+        downloaded = _fast_download_from_memo(req.url, base_extra)
+        if not downloaded:
+            downloaded, last_err = _full_download_sweep(req, base_extra, audio_only)
+    finally:
+        _DOWNLOAD_SLOTS.release()
 
     if not downloaded:
         raise HTTPException(status_code=400, detail=f"Download failed: {last_err}")
 
     matches = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}_*"))
-    matches = [m for m in matches if not m.endswith((".part", ".ytdl", ".temp", ".aria2"))]
+    matches = [m for m in matches
+               if not m.endswith((".part", ".ytdl", ".temp", ".aria2", ".info.json"))]
     if not matches:
         raise HTTPException(status_code=500, detail="File not found after download.")
     filename = max(matches, key=os.path.getsize)
