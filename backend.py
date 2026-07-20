@@ -480,6 +480,28 @@ def _is_audio(f):
     return f.get("resolution") == "audio only" and (not vcodec or vcodec == "none")
 
 
+# Protocols that are a single, plain HTTP file the browser can download itself.
+# HLS/DASH (m3u8*, *dash*) are segmented manifests — they need yt-dlp/ffmpeg to
+# stitch, so they must stay on the server path and never get a direct_url.
+_DIRECT_PROTOCOLS = {"https", "http"}
+
+
+def _direct_url(f):
+    """Return a browser-downloadable direct URL for a format, or None.
+
+    Only progressive (pre-merged) single-file HTTP streams qualify: the browser
+    can pull those itself, skipping the server entirely. Anything that needs a
+    video+audio merge (YouTube HD) or manifest stitching (HLS/DASH) returns None
+    and falls through to the normal server-side download+merge path."""
+    url = f.get("url")
+    if not url:
+        return None
+    proto = (f.get("protocol") or "").split("+")[0]
+    if proto not in _DIRECT_PROTOCOLS:
+        return None
+    return url
+
+
 def _clean_formats(info):
     best_video = {}
     best_audio = {}
@@ -507,6 +529,9 @@ def _clean_formats(info):
                 continue  # generic "best" fallback below still covers it
             acodec = f.get("acodec")
             has_audio = bool(acodec and acodec != "none")
+            # Only pre-merged (has_audio) HTTP streams can be handed straight to
+            # the browser; video-only streams need a server-side audio merge.
+            direct = _direct_url(f) if has_audio else None
             opt = {
                 "format_id": f.get("format_id"),
                 "label": f"{height}p ({ext})",
@@ -515,6 +540,7 @@ def _clean_formats(info):
                 "height": height,
                 "filesize": f.get("filesize") or f.get("filesize_approx"),
                 "progressive": has_audio,
+                "direct_url": direct,
             }
             cur = best_video.get(height)
             if cur is None or _better(opt, cur, "mp4"):
@@ -523,6 +549,10 @@ def _clean_formats(info):
         elif _is_audio(f):
             abr = int(f.get("abr") or f.get("tbr") or 0)
             label = f"Audio only (~{abr}kbps)" if abr else "Audio only"
+            # Audio we hand to the browser directly ONLY when no MP3 transcode
+            # is involved — the direct stream keeps its native ext (m4a/webm/opus).
+            # MP3 conversion still needs the server (ffmpeg), so leave it None there.
+            direct = _direct_url(f)
             opt = {
                 "format_id": f.get("format_id"),
                 "label": label,
@@ -531,6 +561,7 @@ def _clean_formats(info):
                 "abr": abr,
                 "filesize": f.get("filesize") or f.get("filesize_approx"),
                 "progressive": True,
+                "direct_url": direct,
             }
             cur = best_audio.get(abr)
             if cur is None or _better(opt, cur, "m4a"):
@@ -551,6 +582,9 @@ def _clean_formats(info):
             "height": info.get("height") or 0,
             "filesize": info.get("filesize") or info.get("filesize_approx"),
             "progressive": True,
+            # Some single-file extractors (TikTok/IG/Twitter) expose the final
+            # URL right on the info dict — hand it straight to the browser.
+            "direct_url": _direct_url(info),
         }]
 
     if not audios:
@@ -562,6 +596,8 @@ def _clean_formats(info):
             "abr": 192,
             "filesize": None,
             "progressive": True,
+            # MP3 requires a server-side ffmpeg transcode, so never direct.
+            "direct_url": None,
         }]
 
     return videos + audios

@@ -637,53 +637,77 @@ async function pull(){
   }
 }
 
+/* Save a fetched Response to disk, streaming a progress bar as bytes arrive.
+   Shared by the direct-CDN path and the server path so progress UX is identical. */
+async function saveResponse(r, fallbackName){
+  const bar=$('#bar'), pct=$('#ro-pct');
+  const total = +r.headers.get('content-length') || 0;
+  const reader = r.body.getReader(); const chunks=[]; let got=0;
+  while(true){
+    const {done,value} = await reader.read();
+    if(done) break;
+    chunks.push(value); got += value.length;
+    if(total){ const p=Math.min(100,Math.round(got/total*100)); bar.style.width=p+'%'; pct.textContent=p+'%'; }
+    else { pct.textContent=fmtSize(got); bar.style.width='60%'; }
+  }
+  bar.style.width='100%'; pct.textContent='100%';
+  let name = fallbackName;
+  const cd = r.headers.get('content-disposition');
+  const m = cd && /filename[^;=\n]*=(?:UTF-8''|")?([^";\n]+)/i.exec(cd);
+  if(m){ try{ name = decodeURIComponent(m[1]); }catch(e){ name = m[1]; } }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(chunks)); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+
+/* Server path: backend downloads + merges, then streams the file back. The
+   reliable fallback and the only route for HD merges / MP3 transcodes. */
+async function serverDownload(sel, fallbackName){
+  const body = JSON.stringify({
+    url:$('#url').value.trim(),
+    format_id:state.selected,
+    audio_only: !!(sel && sel.type==='audio'),
+    height: (sel && sel.type==='video' && sel.height) ? sel.height : null
+  });
+  // The backend caps concurrent downloads and returns 503 when the box is
+  // momentarily saturated. Retry a few times with backoff so a busy spike
+  // reads as "queued", not a failure.
+  let r, tries=0;
+  while(true){
+    r = await fetch(`${API_BASE}/download`,{
+      method:'POST', headers:{'Content-Type':'application/json'}, body
+    });
+    if(r.status!==503 || tries>=4) break;
+    tries++;
+    $('#tally-label').textContent = 'Queued…';
+    await new Promise(res=>setTimeout(res, 1500*tries));
+  }
+  if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.detail||`HTTP ${r.status}`); }
+  await saveResponse(r, fallbackName);
+}
+
 async function goLive(){
   if(!state.selected || !state.data) return;
-  const dock=$('#dock'), bar=$('#bar'), pct=$('#ro-pct'), air=$('#air');
+  const dock=$('#dock'), air=$('#air');
   dock.classList.remove('armed'); dock.classList.add('live');
   $('#tally-label').textContent='On Air'; air.disabled=true;
-  bar.style.width='0%'; pct.textContent='0%';
+  $('#bar').style.width='0%'; $('#ro-pct').textContent='0%';
+  const sel = state.data.formats.find(x=>x.format_id===state.selected);
+  let name = (state.data.title||'video').replace(/[\\/:*?"<>|]/g,'').slice(0,80)
+             + '.' + ((sel&&sel.type==='audio')?(sel.ext||'m4a'):((sel&&sel.ext)||'mp4'));
   try{
-    const sel = state.data.formats.find(x=>x.format_id===state.selected);
-    const body = JSON.stringify({
-      url:$('#url').value.trim(),
-      format_id:state.selected,
-      audio_only: !!(sel && sel.type==='audio'),
-      height: (sel && sel.type==='video' && sel.height) ? sel.height : null
-    });
-    // The backend caps concurrent downloads and returns 503 when the box is
-    // momentarily saturated. Retry a few times with backoff so a busy spike
-    // reads as "queued", not a failure.
-    let r, tries=0;
-    while(true){
-      r = await fetch(`${API_BASE}/download`,{
-        method:'POST', headers:{'Content-Type':'application/json'}, body
-      });
-      if(r.status!==503 || tries>=4) break;
-      tries++;
-      $('#tally-label').textContent = 'Queued…';
-      await new Promise(res=>setTimeout(res, 1500*tries));
+    // FAST PATH: a single pre-merged HTTP stream is pulled straight from the CDN
+    // in the browser — no server hop, no double transfer. CDNs sometimes refuse
+    // cross-origin fetches; on ANY failure we fall back to the server path, so
+    // this is a pure speedup with no new failure mode.
+    if(sel && sel.direct_url){
+      try{
+        const dr = await fetch(sel.direct_url);
+        if(dr.ok && dr.body){ await saveResponse(dr, name); $('#tally-label').textContent='Grabbed ✓'; return; }
+        throw new Error('direct fetch not ok');
+      }catch(_){ $('#tally-label').textContent='Routing…'; /* fall through to server */ }
     }
-    if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.detail||`HTTP ${r.status}`); }
-    const total = +r.headers.get('content-length') || 0;
-    const reader = r.body.getReader(); const chunks=[]; let got=0;
-    while(true){
-      const {done,value} = await reader.read();
-      if(done) break;
-      chunks.push(value); got += value.length;
-      if(total){ const p=Math.min(100,Math.round(got/total*100)); bar.style.width=p+'%'; pct.textContent=p+'%'; }
-      else { pct.textContent=fmtSize(got); bar.style.width='60%'; }
-    }
-    bar.style.width='100%'; pct.textContent='100%';
-    const blob = new Blob(chunks);
-    let name = (state.data.title||'video').replace(/[\\/:*?"<>|]/g,'').slice(0,80);
-    const cd = r.headers.get('content-disposition');
-    const m = cd && /filename[^;=\n]*=(?:UTF-8''|")?([^";\n]+)/i.exec(cd);
-    if(m) { try { name = decodeURIComponent(m[1]); } catch(e) { name = m[1]; } }
-    else { const f=state.data.formats.find(x=>x.format_id===state.selected); name += '.'+((f&&f.type==='audio')?'mp3':((f&&f.ext)||'mp4')); }
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    await serverDownload(sel, name);
     $('#tally-label').textContent='Grabbed ✓';
   }catch(e){
     $('#tally-label').textContent='Failed';
