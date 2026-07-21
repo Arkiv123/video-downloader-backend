@@ -15,11 +15,14 @@
 <meta property="og:title" content="SoundCloud Track Downloader · GOOGLY RANKS">
 <meta property="og:description" content="Save SoundCloud tracks as audio files for offline listening. Free soundcloud downloader — no signup, works in your browser.">
 <meta property="og:url" content="https://googly-ranks.pages.dev/soundcloud-downloader/">
-<meta property="og:image" content="https://googly-ranks.pages.dev/icon.svg">
+<meta property="og:image" content="https://googly-ranks.pages.dev/og/soundcloud-downloader.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="SoundCloud Track Downloader — GOOGLY RANKS">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="SoundCloud Track Downloader · GOOGLY RANKS">
 <meta name="twitter:description" content="Save SoundCloud tracks as audio files for offline listening. Free soundcloud downloader — no signup, works in your browser.">
-<meta name="twitter:image" content="https://googly-ranks.pages.dev/icon.svg">
+<meta name="twitter:image" content="https://googly-ranks.pages.dev/og/soundcloud-downloader.png">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -41,6 +44,10 @@
   .lp-prose h2{font-family:var(--disp);text-transform:uppercase;letter-spacing:.03em;
     color:var(--text);font-size:1.4rem;margin:var(--sp-8) 0 var(--sp-3)}
   .lp-prose p{color:var(--muted);margin-bottom:var(--sp-3)}
+  .lp-steps{color:var(--muted);margin:0 0 var(--sp-4) 1.1em;padding:0;display:flex;
+    flex-direction:column;gap:var(--sp-2)}
+  .lp-steps li{padding-left:6px}
+  .lp-steps b{color:var(--text)}
   .lp-faq{border-top:1px solid var(--line-soft);padding:var(--sp-4) 0}
   .lp-faq summary{cursor:pointer;color:var(--text);font-weight:600;font-family:var(--disp);
     text-transform:uppercase;letter-spacing:.02em;font-size:1.02rem}
@@ -63,7 +70,7 @@
     <span class="status" id="status" data-state="checking" title="Backend status">
       <span class="dot"></span><span id="statusText">CHECKING</span>
     </span>
-    <a href="/" style="text-decoration:none;color:inherit"><span class="wordmark">GOOGLY <span>RANKS</span></span></a>
+    <a href="/" style="text-decoration:none;color:inherit"><span class="wordmark"><img src="/icon.svg" alt="" class="brand-mark" width="28" height="28">GOOGLY <span>RANKS</span></span></a>
     <span class="rail-spacer"></span>
     <span class="clock" id="clock">--:--:--</span>
   </div>
@@ -170,6 +177,22 @@
   <section class="lp-prose">
     <h2>How to use this soundcloud downloader</h2>
     <p>Copy the link to the video you want, paste it in the box above, and hit Pull Feed. Every resolution and audio track the source carries is laid out on the board — pick one and grab it. It runs in your browser, nothing to install and no account needed.</p>
+    <ol class="lp-steps">
+      <li>Copy the link to the video or track you want to save.</li>
+      <li>Paste it into the box at the top of this page and press <b>Pull Feed</b>.</li>
+      <li>Pick the quality or audio you want from the board, then hit <b>On Air</b> to save it to your device.</li>
+    </ol>
+
+    <h2>Quality &amp; formats</h2>
+    <p>Every resolution the source carries is listed for you automatically — from
+    4K and 1080p down to lighter sizes — plus an audio-only option for a clean MP3.
+    Nothing is upscaled or faked: you always get exactly what the source offers,
+    and high-resolution video and audio are merged into one file where needed.</p>
+
+    <h2>Free, on any device — no app</h2>
+    <p>GOOGLY RANKS's soundcloud downloader runs entirely in your browser, so it works the same on
+    Android, iPhone, iPad, Windows, Mac and Linux. There is no app to install, no
+    account to create, and no limit on how many links you pull.</p>
     <details class="lp-faq"><summary>What format is the audio?</summary><p>MP3, extracted from the best stream the track exposes.</p></details>
   </section>
 

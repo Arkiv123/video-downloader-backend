@@ -20,6 +20,10 @@ import json
 import os
 import html
 import datetime as _dt
+try:
+    from . import ogimage  # when run as a module
+except Exception:
+    import ogimage         # when run as a script from seo/
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -124,11 +128,14 @@ PAGE = """<!DOCTYPE html>
 <meta property="og:title" content="{h1} · {brand}">
 <meta property="og:description" content="{desc}">
 <meta property="og:url" content="{origin}/{slug}/">
-<meta property="og:image" content="{origin}/icon.svg">
+<meta property="og:image" content="{origin}/og/{slug}.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{h1} — {brand}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{h1} · {brand}">
 <meta name="twitter:description" content="{desc}">
-<meta name="twitter:image" content="{origin}/icon.svg">
+<meta name="twitter:image" content="{origin}/og/{slug}.png">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -150,6 +157,10 @@ PAGE = """<!DOCTYPE html>
   .lp-prose h2{{font-family:var(--disp);text-transform:uppercase;letter-spacing:.03em;
     color:var(--text);font-size:1.4rem;margin:var(--sp-8) 0 var(--sp-3)}}
   .lp-prose p{{color:var(--muted);margin-bottom:var(--sp-3)}}
+  .lp-steps{{color:var(--muted);margin:0 0 var(--sp-4) 1.1em;padding:0;display:flex;
+    flex-direction:column;gap:var(--sp-2)}}
+  .lp-steps li{{padding-left:6px}}
+  .lp-steps b{{color:var(--text)}}
   .lp-faq{{border-top:1px solid var(--line-soft);padding:var(--sp-4) 0}}
   .lp-faq summary{{cursor:pointer;color:var(--text);font-weight:600;font-family:var(--disp);
     text-transform:uppercase;letter-spacing:.02em;font-size:1.02rem}}
@@ -172,7 +183,7 @@ PAGE = """<!DOCTYPE html>
     <span class="status" id="status" data-state="checking" title="Backend status">
       <span class="dot"></span><span id="statusText">CHECKING</span>
     </span>
-    <a href="/" style="text-decoration:none;color:inherit"><span class="wordmark">GOOGLY <span>RANKS</span></span></a>
+    <a href="/" style="text-decoration:none;color:inherit"><span class="wordmark"><img src="/icon.svg" alt="" class="brand-mark" width="28" height="28">GOOGLY <span>RANKS</span></span></a>
     <span class="rail-spacer"></span>
     <span class="clock" id="clock">--:--:--</span>
   </div>
@@ -279,6 +290,22 @@ PAGE = """<!DOCTYPE html>
   <section class="lp-prose">
     <h2>How to use this {keyword}</h2>
     <p>{howto}</p>
+    <ol class="lp-steps">
+      <li>Copy the link to the video or track you want to save.</li>
+      <li>Paste it into the box at the top of this page and press <b>Pull Feed</b>.</li>
+      <li>Pick the quality or audio you want from the board, then hit <b>On Air</b> to save it to your device.</li>
+    </ol>
+
+    <h2>Quality &amp; formats</h2>
+    <p>Every resolution the source carries is listed for you automatically — from
+    4K and 1080p down to lighter sizes — plus an audio-only option for a clean MP3.
+    Nothing is upscaled or faked: you always get exactly what the source offers,
+    and high-resolution video and audio are merged into one file where needed.</p>
+
+    <h2>Free, on any device — no app</h2>
+    <p>{brand}'s {keyword} runs entirely in your browser, so it works the same on
+    Android, iPhone, iPad, Windows, Mac and Linux. There is no app to install, no
+    account to create, and no limit on how many links you pull.</p>
 {faq_html}
   </section>
 
@@ -353,6 +380,16 @@ def build():
             fh.write(rendered)
         written.append(slug)
         print(f"  wrote {slug}/index.html")
+
+        # OG card (1200x630 PNG) for rich social previews. Best-effort: if Pillow
+        # is missing, ogimage.render returns False and we keep the icon fallback.
+        og_ok = ogimage.render(
+            title=p["h1"], brand=site["brand"],
+            subtitle="Free · No signup · 1000+ sites · Every quality",
+            out_path=os.path.join(ROOT, "og", f"{slug}.png"),
+        )
+        if og_ok:
+            print(f"  wrote og/{slug}.png")
 
     # sitemap.xml — home first (priority 1.0), then every generated page (0.8).
     # lastmod uses today's build date so crawlers see a fresh signal each deploy.

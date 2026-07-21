@@ -76,12 +76,24 @@ function slideMarkup(s, sponsored){
 }
 
 function renderAds(){
+  // OWNER MODE: visit any page with ?owner=1 once to flag this browser as the
+  // owner (stored in localStorage); ?owner=0 clears it. When on, third-party
+  // ads and sponsored slides are suppressed so YOU never see or click your own
+  // ads — which also protects your account (networks ban self-clicks as invalid
+  // traffic). Your own house promos still show, so the page never looks empty.
+  try{
+    const q = new URLSearchParams(location.search);
+    if(q.has('owner')) localStorage.setItem('gr_owner', q.get('owner')==='0' ? '0' : '1');
+  }catch(e){}
+  const isOwner = (()=>{ try{ return localStorage.getItem('gr_owner')==='1'; }catch(e){ return false; } })();
+
   const res = $('#results');
   if(res && !$('#promo')){
     // Build the slide deck: real affiliate offer first (if set), then house promos.
+    // Owners skip the sponsored affiliate slide but keep house promos.
     const slides = [];
     const a = ADS.affiliate;
-    if(a && a.title && a.href) slides.push({...a, _sponsored:true});
+    if(a && a.title && a.href && !isOwner) slides.push({...a, _sponsored:true});
     (ADS.house||[]).forEach(h => { if(h && h.title) slides.push(h); });
 
     if(slides.length){
@@ -123,7 +135,7 @@ function renderAds(){
     }
   }
   const nd = ADS.nativeDisplay;
-  if(nd && nd.scriptSrc && !document.getElementById('native-slot')){
+  if(nd && nd.scriptSrc && !isOwner && !document.getElementById('native-slot')){
     const slot = document.createElement('div');
     slot.id = 'native-slot'; slot.className = 'native-slot';
     // Native-ad convention: a "Recommended for you" kicker makes the unit read
