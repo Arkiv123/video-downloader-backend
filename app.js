@@ -142,9 +142,32 @@ function renderAds(){
     }
     const foot = document.querySelector('.site-foot');
     if(foot) foot.parentElement.insertBefore(slot, foot);
-    const s = document.createElement('script');
-    s.src = nd.scriptSrc; s.async = true; s.setAttribute('data-cfasync','false');
-    slot.appendChild(s);
+
+    // Inject the network script only once the slot nears the viewport (lazy),
+    // then confirm the ad actually filled — if the container is still empty a
+    // few seconds later (ad blocker, no bid, geo), hide the frame so we never
+    // show a broken empty "Recommended for you" card. Purely subtractive.
+    let injected = false;
+    const box = nd.containerId ? document.getElementById(nd.containerId) : null;
+    const fire = () => {
+      if(injected) return; injected = true;
+      const s = document.createElement('script');
+      s.src = nd.scriptSrc; s.async = true; s.setAttribute('data-cfasync','false');
+      slot.appendChild(s);
+      // Fill check: the container gets child nodes / height once Adsterra paints.
+      setTimeout(() => {
+        const filled = box && (box.childNodes.length > 0 || box.offsetHeight > 0);
+        if(!filled) slot.style.display = 'none';
+      }, 4000);
+    };
+    if('IntersectionObserver' in window){
+      const io = new IntersectionObserver((es) => {
+        if(es.some(e => e.isIntersecting)){ io.disconnect(); fire(); }
+      }, { rootMargin: '400px' }); // start loading a bit before it's on screen
+      io.observe(slot);
+    } else {
+      fire(); // no IO support → just load it
+    }
   }
 }
 
