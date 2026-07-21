@@ -283,6 +283,46 @@
         ["How does it handle playlists?", "Paste any video link and pull it in full quality. For a playlist, grab each video by its own link so you control exactly what you save."],
         ["Can I get audio only?", "Yes — pick the audio option to save any track as an MP3."]
       ]
+    },
+    {
+      "slug": "linkedin-video-downloader",
+      "h1": "LinkedIn Video Downloader",
+      "tagline": "Download videos from public LinkedIn posts in full quality.",
+      "keyword": "linkedin video downloader",
+      "placeholder": "Paste a LinkedIn post link…",
+      "faq": [
+        ["Does it work for any post?", "Any publicly viewable LinkedIn post can be read. Content behind a login can't be reached."]
+      ]
+    },
+    {
+      "slug": "vk-video-downloader",
+      "h1": "VK Video Downloader",
+      "tagline": "Download VK (VKontakte) videos in every resolution the source carries.",
+      "keyword": "vk video downloader",
+      "placeholder": "Paste a VK video link — vk.com/…",
+      "faq": [
+        ["What quality can I get?", "Every resolution the video exposes, up to the highest the uploader posted."]
+      ]
+    },
+    {
+      "slug": "bandcamp-downloader",
+      "h1": "Bandcamp Track Downloader",
+      "tagline": "Save Bandcamp tracks as clean audio files for offline listening.",
+      "keyword": "bandcamp downloader",
+      "placeholder": "Paste a Bandcamp track link…",
+      "faq": [
+        ["What format is the audio?", "MP3, extracted from the best stream the track exposes."]
+      ]
+    },
+    {
+      "slug": "likee-video-downloader",
+      "h1": "Likee Video Downloader (No Watermark)",
+      "tagline": "Save Likee videos to your device — most download without a watermark.",
+      "keyword": "likee video downloader",
+      "placeholder": "Paste a Likee video link…",
+      "faq": [
+        ["Is there a watermark?", "Most Likee sources expose a clean stream, which is what gets saved when available."]
+      ]
     }
   ]
 }
