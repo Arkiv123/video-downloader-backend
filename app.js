@@ -27,6 +27,21 @@ const ADS = {
     cta:   "",              // button text, e.g. "Get NordVPN — 70% off"
     href:  ""               // ← your affiliate URL
   },
+  // (1b) HOUSE PROMOS — YOUR OWN slides, 100% brand-safe (no third party).
+  // These animate in the same premium rotator as the affiliate card above,
+  // so the slot is NEVER empty and NEVER shows dating/adult junk. Edit freely.
+  // action:'install' triggers the PWA install prompt; otherwise href navigates.
+  house: [
+    { icon:"download-cloud", tag:"Get the app", title:"Install GOOGLY RANKS",
+      body:"One tap from your home screen. Works offline-ready, no store needed.",
+      cta:"Add to device", action:"install" },
+    { icon:"globe", tag:"1000+ sources", title:"One paste. Any platform.",
+      body:"YouTube, TikTok, Instagram, X, Reddit, Twitch and a thousand more.",
+      cta:"Try another link", action:"focus" },
+    { icon:"audio-lines", tag:"Pro tip", title:"Rip clean audio too",
+      body:"Pull an MP3 off any video — pick the audio grade on the board.",
+      cta:"How it works", href:"/youtube-to-mp3/" }
+  ],
   // (2) NATIVE DISPLAY unit — Adsterra Native Banner. Needs BOTH the
   // invoke.js URL and its matching container id (both from the GET CODE
   // snippet). Empty = nothing loads, zero network calls.
@@ -44,26 +59,67 @@ const state = { data:null, selected:null, filter:'all' };
 
 /* Inject the native money slots. Idempotent + self-hiding: a slot with no
    content renders nothing, so shipping this empty changes the site by 0px. */
+let deferredInstall = null; // captured PWA install event, if the browser offers one
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; });
+
+function slideMarkup(s, sponsored){
+  const media = s.img
+    ? `<span class="sp-ic sp-img"><img src="${s.img}" alt="" loading="lazy"></span>`
+    : `<span class="sp-ic"><i data-lucide="${s.icon||'sparkles'}" width="22" height="22"></i></span>`;
+  return `${media}
+    <span class="sp-txt">
+      <span class="sp-tag">${s.tag || (sponsored?'Partner':'GOOGLY RANKS')}</span>
+      <b>${s.title||''}</b>
+      <span class="sp-body">${s.body||''}</span>
+    </span>
+    <span class="sp-cta">${s.cta||'Learn more'}<i data-lucide="arrow-right" width="15" height="15"></i></span>`;
+}
+
 function renderAds(){
-  const a = ADS.affiliate;
-  if(a && a.title && a.href && !$('#sponsor')){
-    const res = $('#results'); if(res){
-      const card = document.createElement('a');
-      card.id = 'sponsor'; card.className = 'sponsor';
-      card.href = a.href; card.target = '_blank'; card.rel = 'sponsored noopener';
-      const media = a.img
-        ? `<span class="sp-ic sp-img"><img src="${a.img}" alt="" loading="lazy"></span>`
-        : `<span class="sp-ic"><i data-lucide="${a.icon||'sparkles'}" width="22" height="22"></i></span>`;
-      card.innerHTML = `
-        ${media}
-        <span class="sp-txt">
-          <span class="sp-tag">${a.tag||'Partner'}</span>
-          <b>${a.title}</b>
-          <span class="sp-body">${a.body||''}</span>
-        </span>
-        <span class="sp-cta">${a.cta||'Learn more'}<i data-lucide="arrow-right" width="15" height="15"></i></span>`;
-      res.appendChild(card);
+  const res = $('#results');
+  if(res && !$('#promo')){
+    // Build the slide deck: real affiliate offer first (if set), then house promos.
+    const slides = [];
+    const a = ADS.affiliate;
+    if(a && a.title && a.href) slides.push({...a, _sponsored:true});
+    (ADS.house||[]).forEach(h => { if(h && h.title) slides.push(h); });
+
+    if(slides.length){
+      const rot = document.createElement('div');
+      rot.id = 'promo'; rot.className = 'promo';
+      rot.setAttribute('aria-label','Recommended');
+
+      const track = document.createElement('div');
+      track.className = 'promo-track';
+      slides.forEach((s,i)=>{
+        const el = document.createElement(s.href ? 'a' : 'button');
+        el.className = 'sponsor promo-slide' + (i===0?' is-active':'');
+        el.setAttribute('type', s.href ? '' : 'button');
+        if(s.href){ el.href = s.href; if(s._sponsored){ el.target='_blank'; el.rel='sponsored noopener'; } }
+        el.dataset.action = s.action || '';
+        el.innerHTML = slideMarkup(s, s._sponsored);
+        track.appendChild(el);
+      });
+      rot.appendChild(track);
+
+      // dots + progress line only when there's more than one slide
+      if(slides.length > 1){
+        const nav = document.createElement('div'); nav.className='promo-nav';
+        slides.forEach((_,i)=>{
+          const d=document.createElement('button');
+          d.className='promo-dot'+(i===0?' is-active':''); d.type='button';
+          d.setAttribute('aria-label',`Slide ${i+1}`);
+          d.onclick = ()=>goSlide(i, true);
+          nav.appendChild(d);
+        });
+        rot.appendChild(nav);
+        const line=document.createElement('div'); line.className='promo-line'; line.innerHTML='<i></i>';
+        rot.appendChild(line);
+      }
+
+      res.appendChild(rot);
       if(window.lucide) lucide.createIcons();
+      initPromo(slides.length);
     }
   }
   const nd = ADS.nativeDisplay;
@@ -83,6 +139,61 @@ function renderAds(){
     s.src = nd.scriptSrc; s.async = true; s.setAttribute('data-cfasync','false');
     slot.appendChild(s);
   }
+}
+
+/* ── Promo rotator engine ─────────────────────────────────────────────
+   Crossfades between the affiliate + house slides. Auto-advances every
+   ROTATE ms, pauses on hover/focus, restarts the progress line each step,
+   and fully disables motion when the user prefers reduced motion (shows
+   slide 1 statically). CTA actions: install → PWA prompt, focus → URL box. */
+const PROMO = { i:0, n:0, timer:null, ROTATE:6000,
+  reduce: window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches };
+
+function paintSlide(){
+  const slides = document.querySelectorAll('#promo .promo-slide');
+  const dots   = document.querySelectorAll('#promo .promo-dot');
+  slides.forEach((el,k)=>el.classList.toggle('is-active', k===PROMO.i));
+  dots.forEach((el,k)=>el.classList.toggle('is-active', k===PROMO.i));
+  const bar = document.querySelector('#promo .promo-line i');
+  if(bar && !PROMO.reduce){ // restart the fill animation
+    bar.style.animation='none'; void bar.offsetWidth;
+    bar.style.animation=`promoFill ${PROMO.ROTATE}ms linear`;
+  }
+}
+function goSlide(idx, manual){
+  if(!PROMO.n) return;
+  PROMO.i = (idx + PROMO.n) % PROMO.n;
+  paintSlide();
+  if(manual) restartPromo();
+}
+function nextSlide(){ goSlide(PROMO.i + 1); }
+function startPromo(){ if(!PROMO.reduce && PROMO.n>1){ clearInterval(PROMO.timer); PROMO.timer=setInterval(nextSlide, PROMO.ROTATE); } }
+function stopPromo(){ clearInterval(PROMO.timer); PROMO.timer=null; }
+function restartPromo(){ stopPromo(); startPromo(); }
+
+function initPromo(count){
+  PROMO.i=0; PROMO.n=count;
+  const rot=$('#promo'); if(!rot) return;
+  paintSlide();
+  // CTA actions on slides that aren't plain links
+  rot.querySelectorAll('.promo-slide').forEach(el=>{
+    const act = el.dataset.action;
+    if(act==='install' || act==='focus'){
+      el.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        if(act==='install'){
+          if(deferredInstall){ deferredInstall.prompt(); try{ await deferredInstall.userChoice; }catch(_){}; deferredInstall=null; }
+          else { window.scrollTo({top:0,behavior:'smooth'}); }
+        } else { const u=$('#url'); if(u){ u.focus(); u.scrollIntoView({block:'center',behavior:'smooth'}); } }
+      });
+    }
+  });
+  // pause while the user is looking at / interacting with it
+  rot.addEventListener('mouseenter', stopPromo);
+  rot.addEventListener('mouseleave', startPromo);
+  rot.addEventListener('focusin', stopPromo);
+  rot.addEventListener('focusout', startPromo);
+  startPromo();
 }
 
 /* clock */

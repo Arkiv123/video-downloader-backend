@@ -111,6 +111,49 @@
       "faq": [
         ["What format is the audio?", "MP3, extracted from the best stream the track exposes."]
       ]
+    },
+    {
+      "slug": "pinterest-video-downloader",
+      "h1": "Pinterest Video & Idea Pin Downloader",
+      "tagline": "Save Pinterest videos and Idea Pins to your device in full quality.",
+      "keyword": "pinterest video downloader",
+      "placeholder": "Paste a Pinterest pin link — pinterest.com/pin/…",
+      "faq": [
+        ["Can I save Idea Pins?", "Yes — public Idea Pins and standard video pins are both read and laid out for you to grab."],
+        ["Do I need the Pinterest app?", "No, it runs in your browser. Nothing to install."]
+      ]
+    },
+    {
+      "slug": "dailymotion-video-downloader",
+      "h1": "Dailymotion Video Downloader",
+      "tagline": "Download Dailymotion videos in every resolution the source carries.",
+      "keyword": "dailymotion video downloader",
+      "placeholder": "Paste a Dailymotion link — dailymotion.com/video/…",
+      "faq": [
+        ["What quality can I get?", "Every resolution the video exposes is listed — up to the highest the uploader posted."],
+        ["Is it free?", "Yes, no account and no limits."]
+      ]
+    },
+    {
+      "slug": "youtube-shorts-downloader",
+      "h1": "YouTube Shorts Downloader",
+      "tagline": "Save YouTube Shorts to your phone or desktop in one paste — video or audio.",
+      "keyword": "youtube shorts downloader",
+      "placeholder": "Paste a Shorts link — youtube.com/shorts/…",
+      "faq": [
+        ["Does it keep the original quality?", "Yes — the full resolution the Short was uploaded in is listed on the board."],
+        ["Can I get just the audio?", "Yes, pick the audio option to save the track as an MP3."]
+      ]
+    },
+    {
+      "slug": "tumblr-video-downloader",
+      "h1": "Tumblr Video Downloader",
+      "tagline": "Download videos from public Tumblr posts in full quality.",
+      "keyword": "tumblr video downloader",
+      "placeholder": "Paste a Tumblr post link…",
+      "faq": [
+        ["Does it work for any blog?", "Any publicly viewable post can be read — private or password-gated blogs need a login and can't be reached."]
+      ]
     }
   ]
 }

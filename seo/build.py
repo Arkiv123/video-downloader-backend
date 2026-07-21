@@ -19,6 +19,7 @@ Run:  python seo/build.py   (safe to re-run; overwrites generated files only)
 import json
 import os
 import html
+import datetime as _dt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -32,19 +33,68 @@ def esc(s):
     return html.escape(str(s), quote=True)
 
 
-def faq_jsonld(faq):
-    """Schema.org FAQPage markup — wins the rich-result FAQ dropdowns in Google,
-    a big pSEO edge for zero extra visible content."""
-    items = [{
+def page_jsonld(p, site, origin):
+    """Schema.org @graph for a landing page. One <script> carrying several linked
+    entities is how Google prefers structured data now — the @id cross-references
+    let it understand these describe the same site/app/page rather than four
+    unrelated blobs. We emit:
+      • WebApplication — tells Google this is a free browser tool (price 0). This
+        is what can surface the app-style rich result and the "Free" badge.
+      • FAQPage        — wins the expandable FAQ dropdowns in the SERP.
+      • BreadcrumbList — draws the Home › Page trail under the result title.
+      • Organization / WebSite — brand entity + sitelinks-searchbox eligibility.
+    NOTE: we deliberately DON'T fake aggregateRating/review — invented ratings are
+    a manual-action risk and get stripped anyway. Earn them, don't invent them."""
+    brand, slug = site["brand"], p["slug"]
+    page_url = f"{origin}/{slug}/"
+    faq_items = [{
         "@type": "Question",
         "name": q,
         "acceptedAnswer": {"@type": "Answer", "text": a},
-    } for q, a in faq]
-    return json.dumps({
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        "mainEntity": items,
-    }, ensure_ascii=False)
+    } for q, a in p["faq"]]
+    graph = [
+        {
+            "@type": "Organization",
+            "@id": f"{origin}/#org",
+            "name": brand,
+            "url": f"{origin}/",
+            "logo": f"{origin}/icon.svg",
+        },
+        {
+            "@type": "WebSite",
+            "@id": f"{origin}/#site",
+            "url": f"{origin}/",
+            "name": brand,
+            "publisher": {"@id": f"{origin}/#org"},
+        },
+        {
+            "@type": "WebApplication",
+            "@id": f"{page_url}#app",
+            "name": p["h1"],
+            "url": page_url,
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": "Any (web-based)",
+            "browserRequirements": "Requires JavaScript. Runs in any modern browser.",
+            "isPartOf": {"@id": f"{origin}/#site"},
+            "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        },
+        {
+            "@type": "FAQPage",
+            "@id": f"{page_url}#faq",
+            "isPartOf": {"@id": f"{page_url}#app"},
+            "mainEntity": faq_items,
+        },
+        {
+            "@type": "BreadcrumbList",
+            "@id": f"{page_url}#crumbs",
+            "itemListElement": [
+                {"@type": "ListItem", "position": 1, "name": "Home", "item": f"{origin}/"},
+                {"@type": "ListItem", "position": 2, "name": p["h1"], "item": page_url},
+            ],
+        },
+    ]
+    return json.dumps({"@context": "https://schema.org", "@graph": graph},
+                      ensure_ascii=False)
 
 
 def render_faq(faq):
@@ -65,12 +115,20 @@ PAGE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{h1} · {brand}</title>
 <meta name="description" content="{desc}">
+<meta name="keywords" content="{keyword}, {keyword} free, {keyword} online, download {keyword}">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="{brand}">
 <link rel="canonical" href="{origin}/{slug}/">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="{brand}">
 <meta property="og:title" content="{h1} · {brand}">
 <meta property="og:description" content="{desc}">
 <meta property="og:url" content="{origin}/{slug}/">
+<meta property="og:image" content="{origin}/icon.svg">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{h1} · {brand}">
+<meta name="twitter:description" content="{desc}">
+<meta name="twitter:image" content="{origin}/icon.svg">
 <meta name="theme-color" content="#0b0d10">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -82,6 +140,12 @@ PAGE = """<!DOCTYPE html>
 <style>
   /* Landing-only supplements — the SEO prose block below the tool. Everything
      above uses the shared broadcast-deck styles from /styles.css. */
+  .lp-crumbs{{display:flex;align-items:center;gap:8px;margin-top:var(--sp-4);
+    font-family:var(--mono);font-size:.7rem;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--faint)}}
+  .lp-crumbs a{{color:var(--muted);text-decoration:none}}
+  .lp-crumbs a:hover{{color:var(--lime)}}
+  .lp-crumbs span[aria-current]{{color:var(--text)}}
   .lp-prose{{margin-top:var(--sp-16);max-width:70ch}}
   .lp-prose h2{{font-family:var(--disp);text-transform:uppercase;letter-spacing:.03em;
     color:var(--text);font-size:1.4rem;margin:var(--sp-8) 0 var(--sp-3)}}
@@ -112,6 +176,11 @@ PAGE = """<!DOCTYPE html>
     <span class="rail-spacer"></span>
     <span class="clock" id="clock">--:--:--</span>
   </div>
+
+  <!-- breadcrumb (mirrors the BreadcrumbList schema) -->
+  <nav class="lp-crumbs" aria-label="Breadcrumb">
+    <a href="/">Home</a><span aria-hidden="true">›</span><span aria-current="page">{h1}</span>
+  </nav>
 
   <!-- hero (page-specific copy) -->
   <header class="hero">
@@ -276,7 +345,7 @@ def build():
                 "carries is laid out on the board — pick one and grab it. It runs "
                 "in your browser, nothing to install and no account needed.")),
             placeholder=esc(p["placeholder"]),
-            jsonld=faq_jsonld(p["faq"]),
+            jsonld=page_jsonld(p, site, origin),
             faq_html=render_faq(p["faq"]),
             other_links=other_links(slug),
         )
@@ -285,12 +354,20 @@ def build():
         written.append(slug)
         print(f"  wrote {slug}/index.html")
 
-    # sitemap.xml — home first, then every generated page.
-    urls = [f"{origin}/"] + [f"{origin}/{p['slug']}/" for p in pages]
+    # sitemap.xml — home first (priority 1.0), then every generated page (0.8).
+    # lastmod uses today's build date so crawlers see a fresh signal each deploy.
+    today = _dt.date.today().isoformat()
+    entries = [(f"{origin}/", "1.0", "daily")]
+    entries += [(f"{origin}/{p['slug']}/", "0.8", "weekly") for p in pages]
     sm = ['<?xml version="1.0" encoding="UTF-8"?>',
           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
-    for u in urls:
-        sm.append(f"  <url><loc>{esc(u)}</loc></url>")
+    for loc, prio, freq in entries:
+        sm.append(
+            f"  <url><loc>{esc(loc)}</loc>"
+            f"<lastmod>{today}</lastmod>"
+            f"<changefreq>{freq}</changefreq>"
+            f"<priority>{prio}</priority></url>"
+        )
     sm.append("</urlset>")
     with open(os.path.join(ROOT, "sitemap.xml"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(sm) + "\n")

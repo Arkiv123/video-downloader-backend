@@ -333,7 +333,41 @@
 }
 .sponsor:hover .sp-cta{ gap:10px; }
 .native-slot{ margin:var(--sp-8) 0 var(--sp-4); min-height:0; }
+
+/* ── Promo rotator: crossfading deck of affiliate + house slides. The track is
+   a 1-cell grid so every slide stacks in the same spot and the box auto-sizes
+   to the tallest — no JS height math, no layout jump between slides. ── */
+.promo{ position:relative; margin-top:var(--sp-4); }
+.promo-track{ display:grid; }
+.promo-slide{
+  grid-area:1 / 1;                 /* stack all slides in one cell */
+  width:100%; box-sizing:border-box; margin-top:0;
+  cursor:pointer; border:1px solid var(--line-soft);
+  opacity:0; visibility:hidden; transform:translateY(6px) scale(.995);
+  transition:opacity .5s var(--ease-out-quint), transform .5s var(--ease-out-quint), border-color .25s, box-shadow .25s;
+  text-align:left; font:inherit;   /* reset for <button> slides */
+}
+.promo-slide.is-active{ opacity:1; visibility:visible; transform:none; z-index:1; }
+
+/* dots + progress line sit just under the deck */
+.promo-nav{ display:flex; gap:7px; justify-content:center; margin-top:var(--sp-3); }
+.promo-dot{
+  width:7px; height:7px; padding:0; border:none; border-radius:99px; cursor:pointer;
+  background:var(--line); transition:background .25s var(--ease-out-quint), width .25s var(--ease-out-quint);
+}
+.promo-dot.is-active{ width:20px; background:var(--lime); }
+.promo-line{
+  height:2px; margin:var(--sp-2) auto 0; max-width:60px; border-radius:2px;
+  background:var(--line-soft); overflow:hidden;
+}
+.promo-line i{ display:block; height:100%; width:0; background:var(--lime); }
+@keyframes promoFill{ from{ width:0 } to{ width:100% } }
+
+@media (prefers-reduced-motion: reduce){
+  .promo-slide{ transition:none; }
+  .promo-line{ display:none; }   /* no timer runs, so the bar would be meaningless */
+}
 @media (max-width:560px){
   .sponsor{ flex-wrap:wrap; }
-  .sponsor .sp-cta{ width:100%; text-align:center; }
+  .sponsor .sp-cta{ width:100%; text-align:center; justify-content:center; }
 }
