@@ -168,14 +168,14 @@ contain code from other projects with different licenses.
 Most notably, the PyInstaller-bundled executables include GPLv3+
 licensed code, and as such the combined work is licensed under GPLv3+.
 
-The zipimport Unix executable (yt-dlp) contains ISC licensed code from
-meriyah and MIT licensed code from astring.
+The zipimport Unix executable (yt-dlp) and release tarball
+(yt-dlp.tar.gz) contain ISC licensed code from meriyah and MIT licensed
+code from astring.
 
 See THIRD_PARTY_LICENSES.txt for more details.
 
-The git repository, the source tarball (yt-dlp.tar.gz), the PyPI source
-distribution and the PyPI built distribution (wheel) only contain code
-licensed under the Unlicense.
+The git repository, the PyPI source distribution and the PyPI built
+distribution (wheel) only contain code licensed under the Unlicense.
 
 Note: The manpages, shell completion (autocomplete) files etc. are
 available inside the source tarball
@@ -411,7 +411,7 @@ General Options:
     --no-update                     Do not check for updates (default)
     --update-to [CHANNEL]@[TAG]     Upgrade/downgrade to a specific version.
                                     CHANNEL can be a repository as well. CHANNEL
-                                    and TAG default to "stable" and "latest"
+                                    and TAG default to "nightly" and "latest"
                                     respectively if omitted; See "UPDATE" for
                                     details. Supported channels: stable,
                                     nightly, master
@@ -2316,25 +2316,25 @@ youtube
     respectively
 -   player_client: Clients to extract video data from. The currently
     available clients are web, web_safari, web_embedded, web_music,
-    web_creator, mweb, ios, android, android_vr, tv, tv_downgraded, and
-    tv_simply. By default, android_vr,web_safari is used. If no
-    JavaScript runtime/engine is available, then only android_vr is
-    used. If logged-in cookies are passed to yt-dlp, then
+    web_creator, mweb, ios, visionos, android, android_vr, tv,
+    tv_downgraded, and tv_simply. By default, android_vr,web_safari is
+    used. If no JavaScript runtime/engine is available, then only
+    android_vr is used. If logged-in cookies are passed to yt-dlp, then
     tv_downgraded,web_safari is used for free accounts and
     tv_downgraded,web_creator is used for premium accounts. The
     web_music client is added for music.youtube.com URLs when logged-in
     cookies are used. The web_embedded client is added for
     age-restricted videos but only successfully works around the
     age-restriction sometimes (e.g. if the video is embeddable), and may
-    be added as a fallback if android_vr is unable to access a video.
-    The web_creator client is added for age-restricted videos if account
-    age-verification is required. Some clients, such as web_creator and
-    web_music, require a po_token for their formats to be downloadable.
-    Some clients, such as web_creator, will only work with
-    authentication. Not all clients support authentication via cookies.
-    You can use default for the default clients, or you can use all for
-    all clients (not recommended). You can prefix a client with - to
-    exclude it, e.g. youtube:player_client=default,-web_safari
+    be added as a fallback if android_vr or visionos is unable to access
+    a video. The web_creator client is added for age-restricted videos
+    if account age-verification is required. Some clients, such as
+    web_creator and web_music, require a po_token for their formats to
+    be downloadable. Some clients, such as web_creator, will only work
+    with authentication. Not all clients support authentication via
+    cookies. You can use default for the default clients, or you can use
+    all for all clients (not recommended). You can prefix a client
+    with - to exclude it, e.g. youtube:player_client=default,-web_safari
 -   player_skip: Skip some network requests that are generally needed
     for robust extraction. One or more of configs (skip client configs),
     webpage (skip initial webpage), js (skip js player), initial_data

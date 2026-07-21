@@ -48,7 +48,7 @@ Do not check for updates (default)
 --update-to \f[I][CHANNEL]\[at][TAG]\f[R]
 Upgrade/downgrade to a specific version.
 CHANNEL can be a repository as well.
-CHANNEL and TAG default to \[dq]stable\[dq] and \[dq]latest\[dq]
+CHANNEL and TAG default to \[dq]nightly\[dq] and \[dq]latest\[dq]
 respectively if omitted; See \[dq]UPDATE\[dq] for details.
 Supported channels: stable, nightly, master
 .TP
@@ -2713,8 +2713,9 @@ respectively
 \f[V]player_client\f[R]: Clients to extract video data from.
 The currently available clients are \f[V]web\f[R], \f[V]web_safari\f[R],
 \f[V]web_embedded\f[R], \f[V]web_music\f[R], \f[V]web_creator\f[R],
-\f[V]mweb\f[R], \f[V]ios\f[R], \f[V]android\f[R], \f[V]android_vr\f[R],
-\f[V]tv\f[R], \f[V]tv_downgraded\f[R], and \f[V]tv_simply\f[R].
+\f[V]mweb\f[R], \f[V]ios\f[R], \f[V]visionos\f[R], \f[V]android\f[R],
+\f[V]android_vr\f[R], \f[V]tv\f[R], \f[V]tv_downgraded\f[R], and
+\f[V]tv_simply\f[R].
 By default, \f[V]android_vr,web_safari\f[R] is used.
 If no JavaScript runtime/engine is available, then only
 \f[V]android_vr\f[R] is used.
@@ -2726,7 +2727,7 @@ URLs when logged-in cookies are used.
 The \f[V]web_embedded\f[R] client is added for age-restricted videos but
 only successfully works around the age-restriction sometimes (e.g.
 if the video is embeddable), and may be added as a fallback if
-\f[V]android_vr\f[R] is unable to access a video.
+\f[V]android_vr\f[R] or \f[V]visionos\f[R] is unable to access a video.
 The \f[V]web_creator\f[R] client is added for age-restricted videos if
 account age-verification is required.
 Some clients, such as \f[V]web_creator\f[R] and \f[V]web_music\f[R],

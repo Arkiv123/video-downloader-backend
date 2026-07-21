@@ -8,7 +8,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0A1418,50:16232B,100:0A1418&height=260&section=header&text=GOOGLY%20RANKS&fontSize=66&fontColor=C8FF3D&fontAlignY=36&desc=PULL%20ANY%20CLIP%20OFF%20THE%20WIRE&descAlignY=56&descSize=18&descColor=FF3D6E&animation=twinkling" width="100%"/>
 
 <a href="https://googly-ranks.pages.dev">
-<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=800&size=21&duration=2000&pause=650&color=C8FF3D&center=true&vCenter=true&width=760&height=46&lines=%E2%97%8F+CHECKING+SIGNAL...;%E2%97%8F+STUDIO+FEED+%C2%B7+GRAB+%26+GRADE+%C2%B7+ANY+PLATFORM;%E2%97%8F+YOUTUBE+%C2%B7+TIKTOK+%C2%B7+INSTAGRAM+%C2%B7+X+%C2%B7+REDDIT;%E2%97%8F+IMDB+IDENTIFY+%C2%B7+WHAT+IS+THIS+TITLE%3F;%E2%97%8F+ON+AIR+%C2%B7+READY+TO+PULL" alt="On-air ticker" />
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=800&size=21&duration=2000&pause=650&color=C8FF3D&center=true&vCenter=true&width=760&height=46&lines=%E2%97%8F+CHECKING+SIGNAL...;%E2%97%8F+STUDIO+FEED+%C2%B7+GRAB+%26+GRADE+%C2%B7+ANY+PLATFORM;%E2%97%8F+YOUTUBE+%C2%B7+TIKTOK+%C2%B7+INSTAGRAM+%C2%B7+X+%C2%B7+REDDIT;%E2%97%8F+ON+AIR+%C2%B7+READY+TO+PULL" alt="On-air ticker" />
 </a>
 
 <br/>
@@ -36,8 +36,6 @@
 ## <img src="https://img.shields.io/badge/01-0A1418?style=flat-square&labelColor=C8FF3D" height="22"/> &nbsp; WHAT THIS IS
 
 **GOOGLY RANKS** runs a broadcast-styled feed puller. Drop a link from any platform — the deck reads every resolution and audio track the source carries and lays them out on a live flap board. Pick a grade. Hit **ON AIR**. The clip is yours.
-
-Paste an **IMDb** link instead and the deck flips to *identify* mode — it reads the title, year, type, poster and top cast straight off the wire, no download needed.
 
 > **No watermarks. &nbsp;·&nbsp; No re-compression. &nbsp;·&nbsp; No "download unavailable" walls.**
 
@@ -74,7 +72,6 @@ Paste an **IMDb** link instead and the deck flips to *identify* mode — it read
 |:---:|:---|:---|
 | 🛰️ | **Multi-platform pulls** | YouTube · TikTok · Instagram · X · Facebook · Reddit · Vimeo · Twitch · SoundCloud |
 | 🎚️ | **Full quality board** | Every resolution + audio bitrate the source carries, laid out clean |
-| 🎬 | **IMDb identify** | Paste a title/person link → name, year, type, poster, top cast, popularity rank |
 | 🆓 | **Free up to 4K** | Standard grade, no cost, no login, no install |
 | 🔊 | **Audio-only grab** | Pull just the soundtrack as a clean MP3 |
 | 📱 | **Installable PWA** | Add to home screen, offline shell, native-app feel |
@@ -108,7 +105,6 @@ Paste an **IMDb** link instead and the deck flips to *identify* mode — it read
 <img src="https://img.shields.io/badge/Vimeo-0A1418?style=for-the-badge&logo=vimeo&logoColor=FF3D6E" />
 <img src="https://img.shields.io/badge/Twitch-0A1418?style=for-the-badge&logo=twitch&logoColor=C8FF3D" />
 <img src="https://img.shields.io/badge/SoundCloud-0A1418?style=for-the-badge&logo=soundcloud&logoColor=FF3D6E" />
-<img src="https://img.shields.io/badge/IMDb_identify-0A1418?style=for-the-badge&logo=imdb&logoColor=C8FF3D" />
 
 <br/><br/>
 
@@ -133,7 +129,7 @@ Paste an **IMDb** link instead and the deck flips to *identify* mode — it read
 ### `▸ 01`
 **DROP A LINK**
 
-Paste any video, audio, or IMDb URL into the feed box.
+Paste any video or audio URL into the feed box.
 
 </td>
 <td align="center" width="33%">

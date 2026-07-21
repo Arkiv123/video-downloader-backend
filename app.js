@@ -125,91 +125,10 @@ document.querySelectorAll('.seg button').forEach(b=>{
 function show(view){
   ['empty','error','loading','results'].forEach(v=>$('#'+v).hidden = v!==view);
   $('#dock').hidden = view!=='results';
-  const idc = document.getElementById('identify');
-  if(idc) idc.hidden = view!=='identify';
 }
-
-/* IMDb links point at a catalog page, not a media file — IMDb hosts no films.
-   So instead of trying to download, we IDENTIFY: resolve the title/series/person
-   the link refers to (name, year, kind, poster, cast). Detect those links here
-   and route them to the /identify endpoint. */
-const IMDB_RE = /(?:imdb\.com|imdb\.to)\/.*(?:tt|nm|co)\d{6,9}|\b(?:tt|nm|co)\d{6,9}\b/i;
-function isImdb(url){ return IMDB_RE.test(url); }
-
-/* The identify card is built once, on demand, and reused. Keeping it out of the
-   HTML means every page (main + landing pages) gets the feature from app.js
-   alone, with no markup duplication. It reuses the .monitor/.thumb/.meta look
-   of the results panel so it matches the broadcast-deck design. */
-function identifyCard(){
-  let el = document.getElementById('identify');
-  if(el) return el;
-  el = document.createElement('div');
-  el.id = 'identify'; el.className = 'program'; el.hidden = true;
-  el.innerHTML = `
-    <div class="monitor">
-      <div class="thumb" style="aspect-ratio:2/3">
-        <img id="id-poster" alt="">
-      </div>
-    </div>
-    <div>
-      <div class="board-head"><h3>Identified</h3><span class="count" id="id-kind">—</span></div>
-      <div class="meta" style="border:0;padding:0">
-        <div class="lbl">From IMDb</div>
-        <h2 id="id-title">—</h2>
-        <div class="stats">
-          <div class="stat"><span>Year</span><b id="id-year">—</b></div>
-          <div class="stat"><span>Type</span><b id="id-type">—</b></div>
-          <div class="stat"><span>IMDb rank</span><b id="id-rank">—</b></div>
-        </div>
-        <p id="id-stars" style="color:var(--muted);margin-top:var(--sp-4)"></p>
-        <a id="id-link" href="#" target="_blank" rel="noopener"
-           class="btn-fetch" style="margin-top:var(--sp-4);display:inline-flex;text-decoration:none">
-           <i data-lucide="external-link" width="16" height="16"></i>View on IMDb</a>
-        <p class="hint" style="margin-top:var(--sp-4)">This is a catalog lookup to identify the title — IMDb hosts no downloadable film.</p>
-      </div>
-    </div>`;
-  // Drop it into the stage so show() can toggle it alongside the other views.
-  ($('.stage') || document.body).appendChild(el);
-  return el;
-}
-
-async function identify(url){
-  identifyCard();
-  show('loading');
-  try{
-    const r = await fetch(`${API_BASE}/identify`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({url})
-    });
-    const j = await r.json();
-    if(!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
-    $('#id-poster').src = j.poster || '';
-    $('#id-poster').alt = j.title || '';
-    $('#id-title').textContent = j.title || '—';
-    $('#id-kind').textContent = j.kind || '—';
-    $('#id-type').textContent = j.kind || '—';
-    $('#id-year').textContent = j.year_range || j.year || '—';
-    $('#id-rank').textContent = j.rank ? '#'+j.rank : '—';
-    $('#id-stars').textContent = j.stars ? (j.kind==='Person' ? j.stars : 'Featuring '+j.stars) : '';
-    $('#id-link').href = j.imdb_url || '#';
-    show('identify');
-    if(window.lucide) lucide.createIcons();
-    checkBackend();
-  }catch(e){
-    $('#errtext').innerHTML = `We couldn't identify that link. <code>${(e.message||'').replace(/\[[0-9;]*m/g,'')}</code>`;
-    show('error');
-  }
-}
-
 async function pull(){
   const url = $('#url').value.trim();
   if(!url){ $('#url').focus(); return; }
-  // IMDb links identify, they don't download.
-  if(isImdb(url)){
-    $('#fetch').disabled=true;
-    try{ await identify(url); } finally{ $('#fetch').disabled=false; }
-    return;
-  }
   state.selected=null; $('#air').disabled=true; $('#dock').classList.remove('armed','live');
   $('#fetch').disabled=true; show('loading');
   try{

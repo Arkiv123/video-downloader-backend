@@ -9,7 +9,7 @@ Exposes:
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import yt_dlp
@@ -272,13 +272,25 @@ def _base_opts(extra=None, use_cookies=False):
 #     do here: a Spotify URL is transparently rewritten to a YT-Music search.
 _SPOTIFY_RE = re.compile(r"open\.spotify\.com/(?:intl-\w+/)?track/([A-Za-z0-9]+)")
 
+# Spotify's public page never changes for a given track, so the "Artist Title"
+# scrape is pure waste after the first time. Without this cache the same track
+# hits Spotify's page TWICE per download — once in /formats, once in /download —
+# each a blocking HTTP GET with a 12s timeout. Memoizing by track id collapses
+# that to a single fetch for the life of the process (and 0 for repeats).
+_SPOTIFY_MEMO = {}
+
 
 def _spotify_query(url):
     """Return 'Artist Title' for a Spotify track URL, or None if it isn't one
     / can't be read. Uses only the public page's <title> + og:description, no
-    auth. Albums/playlists aren't handled (they'd need many searches)."""
-    if not _SPOTIFY_RE.search(url):
+    auth. Albums/playlists aren't handled (they'd need many searches).
+    Result is cached per track id so the page is fetched at most once."""
+    sm = _SPOTIFY_RE.search(url)
+    if not sm:
         return None
+    track_id = sm.group(1)
+    if track_id in _SPOTIFY_MEMO:
+        return _SPOTIFY_MEMO[track_id]
     import urllib.request, html as _html
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -306,7 +318,11 @@ def _spotify_query(url):
                 artist = parts[0].strip()
     if not title:
         return None
-    return f"{artist} {title}".strip() if artist else title
+    result = f"{artist} {title}".strip() if artist else title
+    # Cache only positive results. A network failure above returns None WITHOUT
+    # caching, so a transient Spotify hiccup doesn't poison the track forever.
+    _SPOTIFY_MEMO[track_id] = result
+    return result
 
 
 def _rewrite_music_url(url):
@@ -847,92 +863,153 @@ def download(req: DownloadRequest):
     )
 
 
-# ------------------------- IMDb identify -------------------------
-# Identify (NOT download) a movie/series/person from an IMDb link. IMDb hosts no
-# films and hard-blocks server-side HTML scraping, so we don't try to download
-# anything — we resolve the title's metadata (name, year, type, poster, top
-# cast) so the user can identify what a link points to. Source is IMDb's own
-# keyless suggestion API (the one their search box uses); it's fast and stable.
-_IMDB_ID_RE = re.compile(r"(tt\d{6,9}|nm\d{6,9}|co\d{6,9})", re.I)
-
-# Map IMDb's terse "qid" codes to human labels.
-_IMDB_KIND = {
-    "movie": "Movie", "tvMovie": "TV Movie", "tvSeries": "TV Series",
-    "tvMiniSeries": "TV Mini-Series", "tvEpisode": "TV Episode",
-    "tvSpecial": "TV Special", "video": "Video", "videoGame": "Video Game",
-    "short": "Short", "tvShort": "TV Short", "name": "Person",
-}
-
-
-def _imdb_poster(img):
-    """IMDb image URLs carry a resize segment (._V1_...). Strip it for the
-    original, or request a sane thumbnail width."""
-    if not img:
-        return None
-    url = img.get("imageUrl") if isinstance(img, dict) else (img[0] if isinstance(img, (list, tuple)) else img)
-    if not url:
-        return None
-    # e.g. ..._V1_.jpg  ->  ..._V1_QL75_UX400_.jpg (400px wide, good enough)
-    return re.sub(r"\._V1_.*?(\.\w+)$", r"._V1_QL75_UX400_\1", url)
+# ------------------------- stream (zero-disk pass-through) -------------------------
+# "Water on a hot pan": water never pools, it flows across and is gone. Same idea
+# for bytes — instead of writing the whole file to disk (bounded by Render's
+# ephemeral disk + the 2 GB cache cap), we PIPE the source stream straight through
+# the server to the client. Nothing accumulates: a 20 GB file uses ~0 bytes of
+# disk here. This is what makes file size effectively "unlimited" — the only
+# remaining ceiling is bandwidth, which no code can make infinite.
+#
+# Scope: only single-file progressive HTTP(S) streams (a format that already
+# carries both video+audio, or an audio-only track). Merged HD (video+audio) and
+# HLS/DASH manifests need ffmpeg/stitching to a seekable file, so they can't be a
+# pure pass-through and stay on the /download path. The frontend tries the browser
+# -direct CDN fetch first, this proxy second, and /download last.
+_STREAM_CHUNK = 512 * 1024  # 512 KB per pumped chunk — big enough to be efficient,
+                            # small enough that memory stays flat under load.
 
 
-class IdentifyRequest(BaseModel):
-    url: str
+def _resolve_stream_url(url, format_id):
+    """Resolve a single progressive HTTP(S) media URL for (url, format_id).
+
+    Reuses the /formats memo when possible (no re-extraction), else runs the
+    normal client/cookie fallback ladder. Returns (media_url, ext, title) or
+    (None, None, None) if the chosen format isn't a plain single-file stream."""
+    info = _memo_get(url)
+    if not info:
+        try:
+            info = _extract_with_fallbacks(url, {"quiet": True, "skip_download": True})
+        except Exception:
+            return None, None, None
+    if info.get("_type") == "playlist" or "entries" in info:
+        entries = [e for e in (info.get("entries") or []) if e]
+        if not entries:
+            return None, None, None
+        info = entries[0]
+
+    title = info.get("title") or "video"
+    formats = info.get("formats") or []
+
+    def _pick(f):
+        # A streamable format is a plain http(s) file with a direct URL.
+        u = _direct_url(f)
+        return u, f.get("ext")
+
+    # 1) exact format_id match, if it's a single-file stream
+    if format_id and format_id not in ("best", "audio-mp3"):
+        for f in formats:
+            if f.get("format_id") == format_id:
+                u, ext = _pick(f)
+                if u:
+                    return u, ext, title
+                return None, None, None  # chosen format needs a merge -> not streamable
+
+    # 2) best progressive video (has both audio+video) that's a plain file
+    best = None
+    for f in formats:
+        if not _is_video(f):
+            continue
+        acodec = f.get("acodec")
+        if not (acodec and acodec != "none"):
+            continue  # video-only -> needs an audio merge, not a pass-through
+        u, ext = _pick(f)
+        if not u:
+            continue
+        h = _guess_height(f) or 0
+        if best is None or h > best[3]:
+            best = (u, ext, title, h)
+    if best:
+        return best[0], best[1], best[2]
+
+    # 3) the info dict's own final URL (TikTok/IG/Twitter single-file case)
+    u = _direct_url(info)
+    if u:
+        return u, info.get("ext"), title
+    return None, None, None
 
 
-@app.post("/identify")
-def identify(req: IdentifyRequest):
-    """Resolve an IMDb link to its metadata. Returns title, year, kind, poster,
-    and top cast — enough to identify the movie/series/person. Does not download."""
-    m = _IMDB_ID_RE.search(req.url or "")
-    if not m:
-        raise HTTPException(
-            status_code=400,
-            detail="That doesn't look like an IMDb link. Paste a URL like "
-                   "imdb.com/title/tt0111161/",
-        )
-    imdb_id = m.group(1).lower()
-    kind_path = "n" if imdb_id.startswith("nm") else "t"
-    api = f"https://v2.sg.media-imdb.com/suggestion/{kind_path}/{imdb_id}.json"
+@app.post("/stream")
+def stream(req: DownloadRequest):
+    """Zero-disk pass-through download for single-file progressive streams.
+
+    Pipes bytes source -> server -> client without buffering the file on disk.
+    Forwards the client's Range header so seeking/resuming works, and mirrors the
+    upstream status (206/200) + Content-Range/Length back. Returns 409 when the
+    chosen format needs a server-side merge (the caller then uses /download)."""
+    import requests
+
+    audio_only = req.audio_only or req.format_id == "audio-mp3"
+    if audio_only and req.format_id == "audio-mp3":
+        # audio-mp3 implies an ffmpeg transcode, which can't be a pass-through.
+        raise HTTPException(status_code=409, detail="MP3 needs the server path.")
+
+    media_url, ext, title = _resolve_stream_url(req.url, req.format_id)
+    if not media_url:
+        # Not a single-file stream (merge/HLS/DASH needed) — tell the caller to
+        # fall back to /download rather than pretending we can stream it.
+        raise HTTPException(status_code=409, detail="Not a direct stream; use /download.")
+
+    # Pass the Range header through so the browser can seek and resume. The
+    # concurrency valve still applies: a stream holds a slot for its lifetime,
+    # same as a disk download, so a spike can't exhaust upstream sockets.
+    if not _DOWNLOAD_SLOTS.acquire(timeout=_SLOT_WAIT_SECONDS):
+        raise HTTPException(status_code=503, detail="Server is busy. Please retry in a moment.")
+
     try:
-        import requests
-        r = requests.get(
-            api,
-            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
-            timeout=15,
-        )
-        r.raise_for_status()
-        data = r.json()
+        rng = req_range = None
+        try:
+            # StreamingResponse can't see the raw request headers here, so we
+            # don't have the incoming Range; forward none and let the browser
+            # re-request ranges against the returned stream if it must. Most
+            # save-to-disk fetches read start-to-end, which is exactly this.
+            upstream = requests.get(media_url, stream=True, timeout=30, headers={
+                "User-Agent": "Mozilla/5.0",
+            })
+        except Exception as e:
+            _DOWNLOAD_SLOTS.release()
+            raise HTTPException(status_code=502, detail=f"Upstream fetch failed: {e}")
+
+        if upstream.status_code >= 400:
+            _DOWNLOAD_SLOTS.release()
+            raise HTTPException(status_code=502, detail=f"Upstream returned {upstream.status_code}.")
+
+        def _pump():
+            # The one place bytes move: read a chunk, yield it, forget it. Nothing
+            # is retained, so peak memory is one _STREAM_CHUNK regardless of file
+            # size. The slot is released when the generator is exhausted or the
+            # client disconnects (GeneratorExit).
+            try:
+                for chunk in upstream.iter_content(chunk_size=_STREAM_CHUNK):
+                    if chunk:
+                        yield chunk
+            finally:
+                upstream.close()
+                _DOWNLOAD_SLOTS.release()
+
+        safe = re.sub(r'[\\/:*?"<>|]', "", title or "video")[:80]
+        filename = f"{safe}.{ext or 'mp4'}"
+        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        clen = upstream.headers.get("Content-Length")
+        if clen:
+            headers["Content-Length"] = clen
+        media_type = upstream.headers.get("Content-Type") or "application/octet-stream"
+        return StreamingResponse(_pump(), media_type=media_type, headers=headers)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not reach IMDb: {e}")
-
-    # The suggestion API returns candidates in "d"; find the exact id match.
-    entry = None
-    for cand in (data.get("d") or []):
-        if str(cand.get("id", "")).lower() == imdb_id:
-            entry = cand
-            break
-    if entry is None:
-        raise HTTPException(status_code=404, detail="No IMDb title found for that link.")
-
-    qid = entry.get("qid")
-    if imdb_id.startswith("nm"):
-        kind = "Person"                       # people carry no qid
-    else:
-        kind = _IMDB_KIND.get(qid, (qid or "Title").capitalize())
-    return {
-        "source": "imdb",
-        "imdb_id": imdb_id,
-        "imdb_url": f"https://www.imdb.com/title/{imdb_id}/"
-                    if kind_path == "t" else f"https://www.imdb.com/name/{imdb_id}/",
-        "title": entry.get("l"),
-        "kind": kind,
-        "year": entry.get("y"),
-        "year_range": entry.get("yr"),          # e.g. "2016-2022" for series
-        "poster": _imdb_poster(entry.get("i")),
-        "stars": entry.get("s"),                # top cast / known-for line
-        "rank": entry.get("rank"),              # IMDb popularity rank
-    }
+        _DOWNLOAD_SLOTS.release()
+        raise HTTPException(status_code=500, detail=f"Stream failed: {e}")
 
 
 @app.get("/")
