@@ -19,7 +19,9 @@ const ADS = {
   // successful fetch (highest-intent moment). Pay-per-signup, free to join.
   // Fill title + cta + href when you have an affiliate link.
   affiliate: {
-    icon: "shield-check",   // any lucide icon name
+    img:   "",              // optional brand logo/image URL (premium look). Falls back to icon.
+    icon:  "shield-check",  // any lucide icon name (used only if img is empty)
+    tag:   "Editor's pick",  // small kicker label, e.g. "Editor's pick" / "Recommended"
     title: "",              // e.g. "Download on any network, unblocked"
     body:  "",              // one calm line, no hype
     cta:   "",              // button text, e.g. "Get NordVPN — 70% off"
@@ -49,11 +51,17 @@ function renderAds(){
       const card = document.createElement('a');
       card.id = 'sponsor'; card.className = 'sponsor';
       card.href = a.href; card.target = '_blank'; card.rel = 'sponsored noopener';
+      const media = a.img
+        ? `<span class="sp-ic sp-img"><img src="${a.img}" alt="" loading="lazy"></span>`
+        : `<span class="sp-ic"><i data-lucide="${a.icon||'sparkles'}" width="22" height="22"></i></span>`;
       card.innerHTML = `
-        <span class="sp-tag">Partner</span>
-        <span class="sp-ic"><i data-lucide="${a.icon||'sparkles'}" width="20" height="20"></i></span>
-        <span class="sp-txt"><b>${a.title}</b><span>${a.body||''}</span></span>
-        <span class="sp-cta">${a.cta||'Learn more'}</span>`;
+        ${media}
+        <span class="sp-txt">
+          <span class="sp-tag">${a.tag||'Partner'}</span>
+          <b>${a.title}</b>
+          <span class="sp-body">${a.body||''}</span>
+        </span>
+        <span class="sp-cta">${a.cta||'Learn more'}<i data-lucide="arrow-right" width="15" height="15"></i></span>`;
       res.appendChild(card);
       if(window.lucide) lucide.createIcons();
     }
