@@ -25,11 +25,12 @@ const ADS = {
     cta:   "",              // button text, e.g. "Get NordVPN — 70% off"
     href:  ""               // ← your affiliate URL
   },
-  // (2) NATIVE DISPLAY unit — a content-card ad from a network that
-  // ACCEPTS this niche (Monetag / Adsterra native). Paste the <script>
-  // URL they give you. Empty = nothing loads, zero network calls.
+  // (2) NATIVE DISPLAY unit — Adsterra Native Banner. Needs BOTH the
+  // invoke.js URL and its matching container id (both from the GET CODE
+  // snippet). Empty = nothing loads, zero network calls.
   nativeDisplay: {
-    scriptSrc: ""           // ← network-provided script URL
+    scriptSrc:   "https://pl30468258.effectivecpmnetwork.com/ab9c3d2a7064ac3c2d80b47f43df954d/invoke.js",
+    containerId: "container-ab9c3d2a7064ac3c2d80b47f43df954d"
   }
 };
 /* ============================================================
@@ -61,10 +62,18 @@ function renderAds(){
   if(nd && nd.scriptSrc && !document.getElementById('native-slot')){
     const slot = document.createElement('div');
     slot.id = 'native-slot'; slot.className = 'native-slot';
+    // Adsterra fills a specific container id; invoke.js looks for it, so the
+    // div must exist BEFORE the script runs — build the div first, then append.
+    if(nd.containerId){
+      const box = document.createElement('div');
+      box.id = nd.containerId;
+      slot.appendChild(box);
+    }
     const foot = document.querySelector('.site-foot');
     if(foot) foot.parentElement.insertBefore(slot, foot);
     const s = document.createElement('script');
-    s.src = nd.scriptSrc; s.async = true; slot.appendChild(s);
+    s.src = nd.scriptSrc; s.async = true; s.setAttribute('data-cfasync','false');
+    slot.appendChild(s);
   }
 }
 
