@@ -126,6 +126,13 @@ function renderAds(){
   if(nd && nd.scriptSrc && !document.getElementById('native-slot')){
     const slot = document.createElement('div');
     slot.id = 'native-slot'; slot.className = 'native-slot';
+    // Native-ad convention: a "Recommended for you" kicker makes the unit read
+    // as part of the page (fonts/colors come from .native-slot CSS below).
+    const head = document.createElement('div');
+    head.className = 'native-head';
+    head.innerHTML = '<span class="native-kicker">Recommended for you</span>'
+                   + '<span class="native-tag">Sponsored</span>';
+    slot.appendChild(head);
     // Adsterra fills a specific container id; invoke.js looks for it, so the
     // div must exist BEFORE the script runs — build the div first, then append.
     if(nd.containerId){

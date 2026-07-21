@@ -332,7 +332,31 @@
   transition:gap .2s var(--ease-out-quint);
 }
 .sponsor:hover .sp-cta{ gap:10px; }
-.native-slot{ margin:var(--sp-8) 0 var(--sp-4); min-height:0; }
+/* ── Native ad slot: framed to read as site content. The Adsterra creative
+   is theirs, but the wrapper (kicker, "Sponsored" tag, panel, border) inherits
+   the site's tokens so the unit blends in instead of looking bolted-on. ── */
+.native-slot{
+  margin:var(--sp-8) 0 var(--sp-4); min-height:0;
+  background:var(--panel); border:1px solid var(--line-soft);
+  border-radius:12px; padding:var(--sp-4) var(--sp-4) var(--sp-3);
+}
+.native-head{
+  display:flex; align-items:baseline; justify-content:space-between;
+  gap:var(--sp-3); margin-bottom:var(--sp-3);
+  padding-bottom:var(--sp-3); border-bottom:1px solid var(--line-soft);
+}
+.native-kicker{
+  font-family:var(--disp); text-transform:uppercase; font-weight:700;
+  font-size:0.9rem; letter-spacing:0.02em; color:var(--text);
+}
+.native-tag{
+  font-family:var(--mono); font-size:0.6rem; font-weight:700;
+  letter-spacing:0.16em; text-transform:uppercase; color:var(--faint);
+  border:1px solid var(--line-soft); border-radius:99px;
+  padding:3px 9px; white-space:nowrap;
+}
+/* Let the ad's own markup breathe inside the frame */
+.native-slot > div:not(.native-head){ font-family:var(--body); }
 
 /* ── Promo rotator: crossfading deck of affiliate + house slides. The track is
    a 1-cell grid so every slide stacks in the same spot and the box auto-sizes
