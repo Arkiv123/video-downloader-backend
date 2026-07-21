@@ -154,6 +154,135 @@
       "faq": [
         ["Does it work for any blog?", "Any publicly viewable post can be read — private or password-gated blogs need a login and can't be reached."]
       ]
+    },
+    {
+      "slug": "online-video-downloader",
+      "h1": "Online Video Downloader — Any Site, Free",
+      "tagline": "Paste a link from 1000+ sites and download the video or audio in every quality it carries. No app, no signup.",
+      "keyword": "online video downloader",
+      "placeholder": "Paste any video URL from any website…",
+      "faq": [
+        ["Which sites are supported?", "Over a thousand — YouTube, TikTok, Instagram, Facebook, X, Reddit, Vimeo, Twitch and many more. If a page has a video, paste the link and try it."],
+        ["Do I need to install anything?", "No. It runs fully in your browser on any device — phone, tablet, laptop or desktop."],
+        ["Is it really free?", "Yes. No account, no trial, no limits on how many links you pull."]
+      ]
+    },
+    {
+      "slug": "youtube-to-mp4",
+      "h1": "YouTube to MP4 Converter",
+      "tagline": "Save any YouTube video as a standard MP4 — 4K, 1080p or 720p, ready to play anywhere.",
+      "keyword": "youtube to mp4",
+      "placeholder": "Paste a YouTube link to save as MP4…",
+      "faq": [
+        ["What resolutions can I save?", "Every resolution the source carries, up to 4K. High-resolution streams are merged with audio into one MP4 for you."],
+        ["Will it play on my phone and TV?", "Yes. MP4 is the most widely supported format — it plays on virtually every phone, TV, and computer."],
+        ["Is signup required?", "No account and no limits."]
+      ]
+    },
+    {
+      "slug": "mp4-to-mp3-converter",
+      "h1": "MP4 to MP3 Converter",
+      "tagline": "Pull clean audio out of any video link and save it as an MP3 for offline listening.",
+      "keyword": "mp4 to mp3 converter",
+      "placeholder": "Paste a video link to extract its audio as MP3…",
+      "faq": [
+        ["What bitrate is the MP3?", "Up to 192 kbps, extracted from the best audio track the source carries."],
+        ["Does it work for videos from any site?", "Yes — paste a link from YouTube or any of 1000+ supported sites and pick the audio option."]
+      ]
+    },
+    {
+      "slug": "4k-video-downloader",
+      "h1": "4K Video Downloader",
+      "tagline": "Download videos in full 4K (2160p) when the source carries it — every high-resolution track, merged and ready.",
+      "keyword": "4k video downloader",
+      "placeholder": "Paste a link to download in 4K…",
+      "faq": [
+        ["How do I get true 4K?", "If the video was uploaded in 2160p, the 4K option appears on the board. High-res video and audio are separate streams that get merged into one file for you."],
+        ["What if there's no 4K?", "You'll always see the highest resolution the source actually carries — nothing is upscaled or faked."]
+      ]
+    },
+    {
+      "slug": "instagram-story-downloader",
+      "h1": "Instagram Story Downloader",
+      "tagline": "Save public Instagram Stories to your device before they disappear.",
+      "keyword": "instagram story downloader",
+      "placeholder": "Paste an Instagram profile or story link…",
+      "faq": [
+        ["Can I save a story anonymously?", "This tool only reads publicly available content and does not post views or notify anyone."],
+        ["Do private accounts work?", "No — only public content can be read without a login."]
+      ]
+    },
+    {
+      "slug": "facebook-reels-downloader",
+      "h1": "Facebook Reels Downloader",
+      "tagline": "Download public Facebook Reels in HD, straight to your phone or computer.",
+      "keyword": "facebook reels downloader",
+      "placeholder": "Paste a Facebook Reel link…",
+      "faq": [
+        ["What quality do I get?", "The full quality the Reel was posted in, up to HD when available."],
+        ["Does it work on mobile?", "Yes — it runs in any mobile browser, nothing to install."]
+      ]
+    },
+    {
+      "slug": "snapchat-video-downloader",
+      "h1": "Snapchat Video Downloader",
+      "tagline": "Save public Snapchat Spotlight and story videos to your device.",
+      "keyword": "snapchat video downloader",
+      "placeholder": "Paste a Snapchat Spotlight or story link…",
+      "faq": [
+        ["Which Snapchat videos work?", "Publicly shared Spotlight and public story links can be read. Private snaps need a login and can't be reached."]
+      ]
+    },
+    {
+      "slug": "threads-video-downloader",
+      "h1": "Threads Video Downloader",
+      "tagline": "Download videos from public Threads posts in one paste.",
+      "keyword": "threads video downloader",
+      "placeholder": "Paste a Threads post link…",
+      "faq": [
+        ["Does it keep full quality?", "Yes — the full resolution the post carries is listed on the board."]
+      ]
+    },
+    {
+      "slug": "kick-clip-downloader",
+      "h1": "Kick Clip Downloader",
+      "tagline": "Save Kick clips and VODs to watch offline.",
+      "keyword": "kick clip downloader",
+      "placeholder": "Paste a Kick clip or VOD link…",
+      "faq": [
+        ["Can I download a full VOD?", "Yes, as long as the broadcast has ended and is available as a recording."]
+      ]
+    },
+    {
+      "slug": "rumble-video-downloader",
+      "h1": "Rumble Video Downloader",
+      "tagline": "Download Rumble videos in every resolution the source carries.",
+      "keyword": "rumble video downloader",
+      "placeholder": "Paste a Rumble link — rumble.com/…",
+      "faq": [
+        ["What quality can I get?", "Every resolution the video exposes, up to the highest the uploader posted."]
+      ]
+    },
+    {
+      "slug": "bilibili-video-downloader",
+      "h1": "Bilibili Video Downloader",
+      "tagline": "Download Bilibili videos as MP4 in full quality.",
+      "keyword": "bilibili video downloader",
+      "placeholder": "Paste a Bilibili link — bilibili.com/…",
+      "faq": [
+        ["Does it work outside China?", "Yes — it reads publicly viewable Bilibili videos from anywhere in your browser."]
+      ]
+    },
+    {
+      "slug": "youtube-playlist-downloader",
+      "h1": "YouTube Playlist Downloader",
+      "tagline": "Grab videos from a YouTube playlist one link at a time, in any quality.",
+      "keyword": "youtube playlist downloader",
+      "placeholder": "Paste a YouTube video link from the playlist…",
+      "faq": [
+        ["How does it handle playlists?", "Paste any video link and pull it in full quality. For a playlist, grab each video by its own link so you control exactly what you save."],
+        ["Can I get audio only?", "Yes — pick the audio option to save any track as an MP3."]
+      ]
     }
   ]
 }
