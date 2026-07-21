@@ -8,8 +8,65 @@ const API_BASE = "https://video-downloader-backend-79wc.onrender.com";
    ⬆⬆⬆  THAT'S IT. DON'T TOUCH ANYTHING BELOW.  ⬆⬆⬆
    ============================================================ */
 
+/* ============================================================
+   💰 MONEY SLOTS — the ONLY block you touch to start earning.
+   Everything is styled to look like part of the site (native).
+   Leave a field "" and that slot stays INVISIBLE — so this is
+   safe to ship right now; nothing shows until you fill it in.
+   ============================================================ */
+const ADS = {
+  // (1) NATIVE AFFILIATE card — shows inside the result card after a
+  // successful fetch (highest-intent moment). Pay-per-signup, free to join.
+  // Fill title + cta + href when you have an affiliate link.
+  affiliate: {
+    icon: "shield-check",   // any lucide icon name
+    title: "",              // e.g. "Download on any network, unblocked"
+    body:  "",              // one calm line, no hype
+    cta:   "",              // button text, e.g. "Get NordVPN — 70% off"
+    href:  ""               // ← your affiliate URL
+  },
+  // (2) NATIVE DISPLAY unit — a content-card ad from a network that
+  // ACCEPTS this niche (Monetag / Adsterra native). Paste the <script>
+  // URL they give you. Empty = nothing loads, zero network calls.
+  nativeDisplay: {
+    scriptSrc: ""           // ← network-provided script URL
+  }
+};
+/* ============================================================
+   ⬆  Fill those in when accounts exist. Don't touch below.
+   ============================================================ */
+
 const $ = s => document.querySelector(s);
 const state = { data:null, selected:null, filter:'all' };
+
+/* Inject the native money slots. Idempotent + self-hiding: a slot with no
+   content renders nothing, so shipping this empty changes the site by 0px. */
+function renderAds(){
+  const a = ADS.affiliate;
+  if(a && a.title && a.href && !$('#sponsor')){
+    const res = $('#results'); if(res){
+      const card = document.createElement('a');
+      card.id = 'sponsor'; card.className = 'sponsor';
+      card.href = a.href; card.target = '_blank'; card.rel = 'sponsored noopener';
+      card.innerHTML = `
+        <span class="sp-tag">Partner</span>
+        <span class="sp-ic"><i data-lucide="${a.icon||'sparkles'}" width="20" height="20"></i></span>
+        <span class="sp-txt"><b>${a.title}</b><span>${a.body||''}</span></span>
+        <span class="sp-cta">${a.cta||'Learn more'}</span>`;
+      res.appendChild(card);
+      if(window.lucide) lucide.createIcons();
+    }
+  }
+  const nd = ADS.nativeDisplay;
+  if(nd && nd.scriptSrc && !document.getElementById('native-slot')){
+    const slot = document.createElement('div');
+    slot.id = 'native-slot'; slot.className = 'native-slot';
+    const foot = document.querySelector('.site-foot');
+    if(foot) foot.parentElement.insertBefore(slot, foot);
+    const s = document.createElement('script');
+    s.src = nd.scriptSrc; s.async = true; slot.appendChild(s);
+  }
+}
 
 /* clock */
 function tick(){ $('#clock').textContent = new Date().toLocaleTimeString('en-US',{hour12:false}); }
@@ -125,6 +182,7 @@ document.querySelectorAll('.seg button').forEach(b=>{
 function show(view){
   ['empty','error','loading','results'].forEach(v=>$('#'+v).hidden = v!==view);
   $('#dock').hidden = view!=='results';
+  if(view==='results') renderAds();
 }
 async function pull(){
   const url = $('#url').value.trim();
@@ -253,6 +311,7 @@ $('#url').addEventListener('input', warm);
 /* boot */
 checkBackend();
 setInterval(checkBackend, 30000);
+renderAds();
 if(window.lucide) lucide.createIcons();
 /* PWA: register the shell service worker so repeat visits are instant and the
    app is installable. It never caches media or API calls (see sw.js). */
