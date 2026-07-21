@@ -3,4 +3,4 @@ downloads/
 __pycache__/
 *.pyc
 .env
-cookies.txt
+cookies.txt.claude/graphify-out/

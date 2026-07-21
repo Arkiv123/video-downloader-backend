@@ -217,8 +217,13 @@ PAGE = """<!DOCTYPE html>
 
   <footer class="lp-foot">
     <p>{brand} is a metadata tool for content you own or have the right to
-    download. Respect the rights of creators and each platform's terms.
-    &nbsp;·&nbsp; <a href="/">Home</a></p>
+    download. Respect the rights of creators and each platform's terms.</p>
+    <p style="margin-top:8px">
+      <a href="/">Home</a> &nbsp;·&nbsp;
+      <a href="/terms/">Terms</a> &nbsp;·&nbsp;
+      <a href="/privacy/">Privacy</a> &nbsp;·&nbsp;
+      <a href="/dmca/">DMCA</a>
+    </p>
   </footer>
 </div>
 

@@ -277,3 +277,15 @@
     .flap .size{display:none}
     .meta .stats{flex-wrap:wrap}
   }
+
+  /* --- site footer (legal links + disclaimer) --- */
+  .site-foot{margin-top:var(--sp-16);padding-top:var(--sp-6);
+    border-top:1px solid var(--line-soft);display:flex;flex-wrap:wrap;
+    align-items:center;justify-content:space-between;gap:var(--sp-4)}
+  .site-foot .disclaimer{color:var(--faint);font-size:.82rem;line-height:1.6;
+    max-width:60ch;margin:0}
+  .site-foot .foot-links{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+  .site-foot .foot-links a{font-family:var(--mono);font-size:.68rem;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-decoration:none;
+    border:1px solid var(--line-soft);border-radius:99px;padding:6px 12px;transition:all .16s}
+  .site-foot .foot-links a:hover{color:var(--lime);border-color:var(--lime-dim)}
