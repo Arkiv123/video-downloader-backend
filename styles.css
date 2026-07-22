@@ -407,3 +407,53 @@
   .sponsor{ flex-wrap:wrap; }
   .sponsor .sp-cta{ width:100%; text-align:center; justify-content:center; }
 }
+
+/* ── Anti-adblock notice: fixed bottom bar, polite + dismissible (never a wall) ── */
+#ab-note{
+  position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
+  z-index:9999; max-width:min(680px,calc(100vw - 24px));
+  display:flex; align-items:center; gap:var(--sp-4);
+  background:var(--panel-2); border:1px solid var(--line);
+  border-left:3px solid var(--lime); border-radius:12px;
+  padding:var(--sp-3) var(--sp-4); color:var(--text);
+  font-family:var(--body); font-size:.9rem; line-height:1.45;
+  box-shadow:0 18px 50px -20px oklch(0 0 0 / 0.85);
+  animation:abIn .4s var(--ease-out-quint) both;
+}
+@keyframes abIn{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translate(-50%,0)}}
+#ab-note b{color:var(--lime)}
+#ab-note #ab-x{
+  flex:0 0 auto; font-family:var(--disp); text-transform:uppercase; font-weight:700;
+  letter-spacing:.04em; font-size:.8rem; cursor:pointer;
+  background:var(--lime); color:var(--bg); border:none; border-radius:8px; padding:9px 14px;
+  transition:filter .15s;
+}
+#ab-note #ab-x:hover{filter:brightness(1.08)}
+@media (max-width:560px){ #ab-note{flex-direction:column; text-align:center; bottom:8px} }
+@media (prefers-reduced-motion:reduce){ #ab-note{animation:none} }
+
+/* ── Trust bar: cheap conversion + credibility (Free / No signup / No malware) ── */
+.trust{
+  display:flex; flex-wrap:wrap; gap:var(--sp-3) var(--sp-6); justify-content:center;
+  margin-top:var(--sp-12); padding:var(--sp-4);
+  border:1px solid var(--line-soft); border-radius:12px; background:var(--panel);
+}
+.trust span{
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:.74rem; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted);
+}
+.trust i{color:var(--lime)}
+
+/* ── Homepage tool grid: every generated page 1 click from home (crawlability) ── */
+.tool-grid{margin-top:var(--sp-12)}
+.tool-grid h2{font-size:1.25rem;letter-spacing:.03em;margin-bottom:var(--sp-4)}
+.tg-links{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.tg-links a{
+  font-family:var(--body); font-size:.86rem; color:var(--muted); text-decoration:none;
+  padding:10px 12px; border:1px solid var(--line-soft); border-radius:8px;
+  background:var(--panel); transition:all .15s var(--ease-out-quint);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.tg-links a:hover{color:var(--lime);border-color:var(--lime-dim);background:var(--panel-2)}
+@media (max-width:560px){ .tg-links{grid-template-columns:1fr} }

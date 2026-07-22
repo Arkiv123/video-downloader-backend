@@ -76,19 +76,24 @@ function slideMarkup(s, sponsored){
 }
 
 function renderAds(){
-  // OWNER MODE: visit any page with ?owner=1 once to flag this browser as the
-  // owner (stored in localStorage); ?owner=0 clears it. When on, third-party
-  // ads and sponsored slides are suppressed so YOU never see or click your own
-  // ads — which also protects your account (networks ban self-clicks as invalid
-  // traffic). Your own house promos still show, so the page never looks empty.
+  // PUBLISHER SAFE MODE: visit any page with ?owner=1 once to flag THIS browser
+  // as the site owner (stored in localStorage; ?owner=0 clears it). When on, all
+  // third-party ads, sponsored slides, AND the anti-adblock notice are suppressed
+  // for you — so you never see or click your own ads (ad networks ban publishers
+  // for self-clicks / invalid traffic). Your own house promos still show. This is
+  // why you don't need an ad blocker: safe mode already hides ads for you only.
   try{
     const q = new URLSearchParams(location.search);
     if(q.has('owner')) localStorage.setItem('gr_owner', q.get('owner')==='0' ? '0' : '1');
   }catch(e){}
   const isOwner = (()=>{ try{ return localStorage.getItem('gr_owner')==='1'; }catch(e){ return false; } })();
+  window.__grOwner = isOwner; // shared with the anti-adblock guard
 
-  const res = $('#results');
-  if(res && !$('#promo')){
+  // The clean affiliate/house rotator lives right below the stage, so it shows on
+  // the HOMEPAGE immediately (not only after a download). Always-visible anchor.
+  const stage = document.querySelector('.stage');
+  const anchor = stage || $('#results');
+  if(anchor && !$('#promo')){
     // Build the slide deck: real affiliate offer first (if set), then house promos.
     // Owners skip the sponsored affiliate slide but keep house promos.
     const slides = [];
@@ -129,7 +134,8 @@ function renderAds(){
         rot.appendChild(line);
       }
 
-      res.appendChild(rot);
+      if(stage && stage.parentElement) stage.parentElement.insertBefore(rot, stage.nextSibling);
+      else anchor.appendChild(rot);
       if(window.lucide) lucide.createIcons();
       initPromo(slides.length);
     }
@@ -483,6 +489,43 @@ checkBackend();
 setInterval(checkBackend, 30000);
 renderAds();
 if(window.lucide) lucide.createIcons();
+
+/* ── Gentle anti-adblock notice ───────────────────────────────────────────
+   2026 best practice (not a hard gate): if an ad blocker is detected, show ONE
+   polite, DISMISSIBLE bar asking to allowlist us — never block the tool, never
+   trap the user (hard walls bounce users and can read as an intrusive
+   interstitial to Google). Session-level detection only, no fingerprinting.
+   Skipped entirely for the publisher (safe mode) and if already dismissed. */
+function antiAdblockNotice(){
+  if(window.__grOwner) return;                       // never nag the owner
+  try{ if(sessionStorage.getItem('gr_ab_dismiss')==='1') return; }catch(e){}
+  // Bait element with class names blockers commonly hide/remove.
+  const bait = document.createElement('div');
+  bait.className = 'adsbox ad-banner ad-placement pub_300x250';
+  bait.style.cssText = 'position:absolute;height:10px;width:10px;left:-9999px;top:-9999px';
+  bait.innerHTML = '&nbsp;';
+  document.body.appendChild(bait);
+  setTimeout(()=>{
+    const blocked = bait.offsetParent===null || bait.offsetHeight===0 || bait.clientHeight===0
+      || getComputedStyle(bait).display==='none';
+    bait.remove();
+    if(!blocked) return;                              // ads allowed → say nothing
+    if(document.getElementById('ab-note')) return;
+    const bar = document.createElement('div');
+    bar.id = 'ab-note';
+    bar.innerHTML =
+      '<span>This tool is free and ad-supported. Please consider allowing ads for '
+      + '<b>GOOGLY RANKS</b> to keep it running — downloads always stay free.</span>'
+      + '<button type="button" id="ab-x" aria-label="Dismiss">Got it</button>';
+    document.body.appendChild(bar);
+    document.getElementById('ab-x').onclick = ()=>{
+      try{ sessionStorage.setItem('gr_ab_dismiss','1'); }catch(e){}
+      bar.remove();
+    };
+  }, 900);
+}
+antiAdblockNotice();
+
 /* PWA: register the shell service worker so repeat visits are instant and the
    app is installable. It never caches media or API calls (see sw.js). */
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
