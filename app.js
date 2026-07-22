@@ -48,7 +48,24 @@ const ADS = {
   nativeDisplay: {
     scriptSrc:   "https://pl30468258.effectivecpmnetwork.com/ab9c3d2a7064ac3c2d80b47f43df954d/invoke.js",
     containerId: "container-ab9c3d2a7064ac3c2d80b47f43df954d"
+  },
+  // (3) SOCIAL BAR — a floating bar unit. Low-disturbance: it sits at the edge,
+  // doesn't hijack clicks. Loaded once. Empty "" = off.
+  socialBar: {
+    scriptSrc: "https://falconhoe.com/07/c7/72/07c77225bbcba23917b5a9b0d48d32a1.js"
+  },
+  // (4) POPUNDER — highest-paying but the ONLY intrusive one (opens a tab behind
+  // the page on a click). To protect user peace we (a) never fire it on the
+  // download button, (b) hard-cap it to once every popCapHours per visitor via
+  // localStorage, on top of whatever cap you set in the Adsterra dashboard.
+  popunder: {
+    scriptSrc: "https://falconhoe.com/4f/6e/18/4f6e187061d1f6fa358c8b58636ec379.js",
+    popCapHours: 12   // at most one popunder per visitor per 12h (set a matching cap in dashboard too)
   }
+  // NOTE: the Smartlink (falconhoe.com/aexcwuwj?key=…) is deliberately NOT wired
+  // in. A smartlink hijacks a click to send the user to an offer — putting it on
+  // the download button would break the tool and enrage users + Google. Use it
+  // only as a standalone "sponsored" text link if you ever want it.
 };
 /* ============================================================
    ⬆  Fill those in when accounts exist. Don't touch below.
@@ -185,6 +202,35 @@ function renderAds(){
       io.observe(slot);
     } else {
       fire(); // no IO support → just load it
+    }
+  }
+
+  // (3) SOCIAL BAR — floating edge unit. Low-disturbance, load once. Owner skips.
+  const sb = ADS.socialBar;
+  if(sb && sb.scriptSrc && !isOwner && !document.getElementById('social-bar-js')){
+    const s = document.createElement('script');
+    s.id = 'social-bar-js'; s.src = sb.scriptSrc; s.async = true;
+    s.setAttribute('data-cfasync','false');
+    document.body.appendChild(s);
+  }
+
+  // (4) POPUNDER — the only intrusive format, so we gate it hard: skip the owner,
+  // and enforce a per-visitor frequency cap in localStorage so a returning user
+  // isn't popped every visit. This is ON TOP of the dashboard cap. Peace-first.
+  const pu = ADS.popunder;
+  if(pu && pu.scriptSrc && !isOwner && !document.getElementById('popunder-js')){
+    let allow = true;
+    try{
+      const last = +localStorage.getItem('gr_pop_ts') || 0;
+      const capMs = (pu.popCapHours || 12) * 3600 * 1000;
+      if(Date.now() - last < capMs) allow = false;
+      else localStorage.setItem('gr_pop_ts', String(Date.now()));
+    }catch(e){}
+    if(allow){
+      const s = document.createElement('script');
+      s.id = 'popunder-js'; s.src = pu.scriptSrc; s.async = true;
+      s.setAttribute('data-cfasync','false');
+      document.body.appendChild(s);
     }
   }
 }
