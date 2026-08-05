@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
+from urllib.parse import quote
 import yt_dlp
 import os
 import re
@@ -822,14 +823,12 @@ def _make_base_extra(req, audio_only, outtmpl):
     }
     if not audio_only and FFMPEG_AVAILABLE:
         base_extra["merge_output_format"] = "mp4"
-        # Stream-copy merge, no re-encode. We deliberately DON'T pass
-        # -movflags +faststart: it relocates the moov atom, which forces ffmpeg
-        # to rewrite the entire container as a second pass. On this box (0.1
-        # shared vCPU) that pass is pure dead time the user spends staring at
-        # 0%, and it buys nothing here — the file is saved to disk and played
-        # locally, where a trailing moov atom is read just fine. faststart only
-        # matters for progressive playback over HTTP, which we don't do.
-        base_extra["postprocessor_args"] = {"merger": []}
+        # stream-copy merge (no re-encode) + move moov atom to the front so the
+        # file starts playing before it's fully downloaded — no quality loss.
+        # Measured: dropping this saved nothing (19.2s vs 20.0s time-to-first-
+        # byte on a 62MB 1080p merge — noise). The dead time is the 62MB pull
+        # from YouTube at ~4.7MB/s, not the container rewrite. Keeping it.
+        base_extra["postprocessor_args"] = {"merger": ["-movflags", "+faststart"]}
     if shutil.which("aria2c"):
         base_extra["external_downloader"] = "aria2c"
         base_extra["external_downloader_args"] = [
@@ -1110,7 +1109,21 @@ def stream(req: DownloadRequest):
 
         safe = re.sub(r'[\\/:*?"<>|]', "", title or "video")[:80]
         filename = f"{safe}.{ext or 'mp4'}"
-        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        # HTTP headers are latin-1 only, but titles are not (Korean, Japanese,
+        # emoji, accents...). Interpolating the raw title here used to 500 the
+        # whole request. RFC 5987 is the fix: an ASCII-transliterated filename=
+        # for dumb clients, plus filename*=UTF-8'' carrying the real name.
+        # /download never hit this because yt-dlp's restrictfilenames had
+        # already flattened the name on disk; /stream never touches disk.
+        ascii_name = filename.encode("ascii", "ignore").decode("ascii").strip()
+        if not ascii_name or ascii_name.startswith("."):
+            ascii_name = f"video.{ext or 'mp4'}"
+        headers = {
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_name}"; '
+                f"filename*=UTF-8''{quote(filename, safe='')}"
+            )
+        }
         clen = upstream.headers.get("Content-Length")
         if clen:
             headers["Content-Length"] = clen
