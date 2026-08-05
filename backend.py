@@ -220,8 +220,12 @@ _ensure_pot_server()
 #     returned a full format table — so the happy path is listed alone, first.
 #     tv/android are last-resort (often storyboards-only or DRM).
 CLIENT_FALLBACKS = [
-    {"extractor_args": {"youtube": {"player_client": ["web_safari"]}}},
+    # mweb leads because /diag measured it: with cookies it returns 30 real
+    # formats in ~13.7s, while web_safari spends ~4.4s failing outright
+    # ("Requested format is not available" — a degraded, storyboards-only
+    # response). It used to lead, and that was a pure 4.4s tax per fresh URL.
     {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
+    {"extractor_args": {"youtube": {"player_client": ["web_safari"]}}},
     {"extractor_args": {"youtube": {"player_client": ["tv", "web"]}}},
     {"extractor_args": {"youtube": {"player_client": ["android_vr"]}}},
 ]
@@ -362,6 +366,12 @@ def _rewrite_music_url(url):
 # measurement says is true for this deployment — so even the first request
 # after a cold start skips the doomed sweep.
 _PREFER_COOKIES = bool(COOKIE_FILE)
+# Index into CLIENT_FALLBACKS of the player client that last worked. Measured:
+# web_safari fails in ~4.4s ("Requested format is not available" — a degraded,
+# storyboards-only response) while mweb succeeds, so the default order pays a
+# pure 4.4s tax on every fresh URL. Same self-correcting trick as the cookie
+# order: lead with the winner, keep the rest as fallbacks.
+_PREFER_CLIENT = 0
 _PREFER_LOCK = threading.Lock()
 
 
@@ -373,10 +383,27 @@ def _cookie_order():
         return (True, False) if _PREFER_COOKIES else (False, True)
 
 
-def _note_auth_success(use_cookies):
-    global _PREFER_COOKIES
+def _client_order(clients):
+    """Player clients to try, last-known-good first. Non-YouTube lists (a bare
+    [None]) pass straight through."""
+    if clients is not CLIENT_FALLBACKS or len(clients) < 2:
+        return clients
+    with _PREFER_LOCK:
+        i = _PREFER_CLIENT
+    if not (0 <= i < len(clients)):
+        return clients
+    return [clients[i]] + [c for k, c in enumerate(clients) if k != i]
+
+
+def _note_auth_success(use_cookies, client_cfg=None):
+    global _PREFER_COOKIES, _PREFER_CLIENT
     with _PREFER_LOCK:
         _PREFER_COOKIES = use_cookies
+        if client_cfg is not None:
+            try:
+                _PREFER_CLIENT = CLIENT_FALLBACKS.index(client_cfg)
+            except ValueError:
+                pass
 
 
 def _has_real_media(info):
@@ -403,7 +430,7 @@ def _extract_with_fallbacks(url, extra):
     url = _rewrite_music_url(url)
     is_youtube = ("youtube.com" in url or "youtu.be" in url
                   or url.startswith("ytsearch"))
-    clients = CLIENT_FALLBACKS if is_youtube else [None]
+    clients = _client_order(CLIENT_FALLBACKS) if is_youtube else [None]
     last_err = None
     deadline = time.time() + _EXTRACT_BUDGET_SECONDS
 
@@ -422,7 +449,7 @@ def _extract_with_fallbacks(url, extra):
                     info = ydl.extract_info(url, download=False)
                 if info and (info.get("entries") or info.get("url")
                              or _has_real_media(info)):
-                    _note_auth_success(use_cookies)
+                    _note_auth_success(use_cookies, client_cfg)
                     return info
                 last_err = Exception("Extractor returned no usable formats.")
             except Exception as e:
@@ -845,7 +872,7 @@ def _full_download_sweep(req, base_extra, audio_only):
                   or dl_url.startswith("ytsearch"))
     loosest = "bestaudio/best" if audio_only else (
         "bestvideo+bestaudio/best" if FFMPEG_AVAILABLE else "best")
-    clients = CLIENT_FALLBACKS if is_youtube else [None]
+    clients = _client_order(CLIENT_FALLBACKS) if is_youtube else [None]
 
     attempts = []
     # Same ordering lesson as /formats: lead with the auth mode that last
@@ -869,7 +896,7 @@ def _full_download_sweep(req, base_extra, audio_only):
         try:
             with yt_dlp.YoutubeDL(_base_opts(extra, use_cookies=use_cookies)) as ydl:
                 ydl.extract_info(dl_url, download=True)
-            _note_auth_success(use_cookies)
+            _note_auth_success(use_cookies, client_cfg)
             return True, None
         except Exception as e:
             last_err = e
@@ -1116,7 +1143,7 @@ def diag(req: URLRequest):
         pot["error"] = str(e)[:200]
 
     trace = []
-    clients = CLIENT_FALLBACKS if is_youtube else [None]
+    clients = _client_order(CLIENT_FALLBACKS) if is_youtube else [None]
     done = False
     for use_cookies in _cookie_order():
         if done:
@@ -1146,6 +1173,7 @@ def diag(req: URLRequest):
     return {
         "pot_server": pot,
         "prefer_cookies": _PREFER_COOKIES,
+        "prefer_client": CLIENT_FALLBACKS[_PREFER_CLIENT],
         "attempts": trace,
         "total_seconds": round(sum(a["seconds"] for a in trace), 2),
     }
