@@ -344,18 +344,60 @@ def _rewrite_music_url(url):
     return url
 
 
+# --- Which auth mode YouTube actually accepts, remembered process-wide.
+#
+# Measured on the live Render box (POST /diag): all four player clients fail
+# WITHOUT cookies — "Sign in to confirm you're not a bot" — burning ~30s before
+# the cookie attempts succeed. That is normal for a datacenter IP; YouTube
+# treats cloud ranges as untrusted. Leading with cookie-less attempts therefore
+# paid a guaranteed ~30s tax on every fresh URL.
+#
+# We don't hardcode cookies-first either: a stale cookie file can route to a
+# degraded player that returns storyboards only, and hardcoding would make that
+# failure permanent. Instead we remember which mode last worked and lead with
+# it, falling back to the other order automatically. Self-correcting in both
+# directions, no config to keep in sync.
+#
+# Seeded to prefer cookies when a cookie file exists, because that is what the
+# measurement says is true for this deployment — so even the first request
+# after a cold start skips the doomed sweep.
+_PREFER_COOKIES = bool(COOKIE_FILE)
+_PREFER_LOCK = threading.Lock()
+
+
+def _cookie_order():
+    """Auth modes to try, best-known-first. (False,) when we have no cookies."""
+    if not COOKIE_FILE:
+        return (False,)
+    with _PREFER_LOCK:
+        return (True, False) if _PREFER_COOKIES else (False, True)
+
+
+def _note_auth_success(use_cookies):
+    global _PREFER_COOKIES
+    with _PREFER_LOCK:
+        _PREFER_COOKIES = use_cookies
+
+
+def _has_real_media(info):
+    """True if the info dict carries at least one genuine audio/video track.
+
+    Guards the cookies-first path: a degraded player response still returns a
+    populated `formats` list, but it's storyboards (thumbnail strips) only.
+    Treating that as success would hand the user a board full of nothing, so
+    we require a real track before accepting an attempt."""
+    fmts = info.get("formats") or []
+    return any(_is_video(f) or _is_audio(f) for f in fmts)
+
+
 def _extract_with_fallbacks(url, extra):
     """extract_info that retries across player clients before giving up.
 
-    Strategy (durable across platforms):
-      1. Try each player client WITHOUT cookies + PO token. This is the
-         path that returns full format tables for most public videos.
-      2. Only if every clean attempt fails do we retry the client rotation
-         WITH cookies — for genuinely gated content (age-restricted,
-         members-only, region-locked) where a login actually helps.
-    Non-YouTube URLs skip client rotation but still get the no-cookies-then
-    -cookies escalation, which is harmless and occasionally unblocks
-    Instagram/Facebook private posts."""
+    Two axes are swept: the player client, and whether cookies are attached.
+    Cookie order comes from _cookie_order() — whichever mode last worked leads,
+    so we stop paying for attempts that this host's IP can't win. An attempt
+    only counts as success if it yields a real media track (see
+    _has_real_media), which is what makes leading with cookies safe."""
     # A Spotify (or similar) URL becomes a "ytsearch1:Artist Title" query that
     # resolves via YouTube, so it gets the YouTube client rotation too.
     url = _rewrite_music_url(url)
@@ -365,10 +407,7 @@ def _extract_with_fallbacks(url, extra):
     last_err = None
     deadline = time.time() + _EXTRACT_BUDGET_SECONDS
 
-    for use_cookies in (False, True):
-        # no point retrying with cookies if we don't have any
-        if use_cookies and not COOKIE_FILE:
-            break
+    for use_cookies in _cookie_order():
         for client_cfg in clients:
             # Budget check before STARTING an attempt (never mid-flight): once
             # we're this deep the remaining clients are the weak ones anyway,
@@ -381,9 +420,11 @@ def _extract_with_fallbacks(url, extra):
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
-                if info and (info.get("formats") or info.get("entries") or info.get("url")):
+                if info and (info.get("entries") or info.get("url")
+                             or _has_real_media(info)):
+                    _note_auth_success(use_cookies)
                     return info
-                last_err = Exception("Extractor returned no formats.")
+                last_err = Exception("Extractor returned no usable formats.")
             except Exception as e:
                 last_err = e
     raise last_err
@@ -807,19 +848,19 @@ def _full_download_sweep(req, base_extra, audio_only):
     clients = CLIENT_FALLBACKS if is_youtube else [None]
 
     attempts = []
-    # sweep 1: no cookies, each client with the chosen format chain
-    for client_cfg in clients:
-        attempts.append((client_cfg, None, False))
-    # then no cookies with the loosest selector (ignore chosen format)
-    attempts.append((None, loosest, False))
-    # sweep 2: same, but WITH cookies — only reached if everything above failed
-    if COOKIE_FILE:
+    # Same ordering lesson as /formats: lead with the auth mode that last
+    # worked instead of always burning the cookie-less clients first.
+    for use_cookies in _cookie_order():
         for client_cfg in clients:
-            attempts.append((client_cfg, None, True))
-        attempts.append((None, loosest, True))
+            attempts.append((client_cfg, None, use_cookies))
+        # then the loosest selector (ignore the chosen format) in that mode
+        attempts.append((None, loosest, use_cookies))
 
     last_err = None
+    deadline = time.time() + _EXTRACT_BUDGET_SECONDS
     for client_cfg, fmt_override, use_cookies in attempts:
+        if time.time() > deadline and last_err is not None:
+            break
         extra = dict(base_extra)
         if client_cfg:
             extra.update(client_cfg)
@@ -828,6 +869,7 @@ def _full_download_sweep(req, base_extra, audio_only):
         try:
             with yt_dlp.YoutubeDL(_base_opts(extra, use_cookies=use_cookies)) as ydl:
                 ydl.extract_info(dl_url, download=True)
+            _note_auth_success(use_cookies)
             return True, None
         except Exception as e:
             last_err = e
@@ -1075,27 +1117,35 @@ def diag(req: URLRequest):
 
     trace = []
     clients = CLIENT_FALLBACKS if is_youtube else [None]
-    for cfg in clients:
-        name = "default"
-        if cfg:
-            name = "+".join(cfg["extractor_args"]["youtube"]["player_client"])
-        t = time.time()
-        opts = _base_opts({"quiet": True, "no_warnings": True, "skip_download": True},
-                          use_cookies=False)
-        if cfg:
-            opts.update(cfg)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-            trace.append({"client": name, "seconds": round(time.time() - t, 2),
-                          "ok": True, "formats": len(info.get("formats") or [])})
-            break   # stop at the first success, exactly like the real ladder
-        except Exception as e:
-            trace.append({"client": name, "seconds": round(time.time() - t, 2),
-                          "ok": False, "error": str(e)[:200]})
+    done = False
+    for use_cookies in _cookie_order():
+        if done:
+            break
+        for cfg in clients:
+            name = "default"
+            if cfg:
+                name = "+".join(cfg["extractor_args"]["youtube"]["player_client"])
+            name += " +cookies" if use_cookies else " (no cookies)"
+            t = time.time()
+            opts = _base_opts({"quiet": True, "no_warnings": True, "skip_download": True},
+                              use_cookies=use_cookies)
+            if cfg:
+                opts.update(cfg)
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                trace.append({"client": name, "seconds": round(time.time() - t, 2),
+                              "ok": True, "formats": len(info.get("formats") or []),
+                              "real_media": _has_real_media(info)})
+                done = True
+                break   # stop at the first success, exactly like the real ladder
+            except Exception as e:
+                trace.append({"client": name, "seconds": round(time.time() - t, 2),
+                              "ok": False, "error": str(e)[:160]})
 
     return {
         "pot_server": pot,
+        "prefer_cookies": _PREFER_COOKIES,
         "attempts": trace,
         "total_seconds": round(sum(a["seconds"] for a in trace), 2),
     }
@@ -1115,6 +1165,9 @@ def health_check():
         "status": "ok",
         "message": "Video downloader API is running.",
         "cookies": bool(COOKIE_FILE),
+        # Which auth mode the ladder currently leads with. On a datacenter IP
+        # this settles on True — cookie-less YouTube is refused there.
+        "prefer_cookies": _PREFER_COOKIES,
         "yt_dlp": getattr(yt_dlp.version, "__version__", "?"),
         # The single biggest YouTube speed factor. False = every extraction
         # pays a per-client Node subprocess to mint a token.
