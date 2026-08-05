@@ -822,9 +822,14 @@ def _make_base_extra(req, audio_only, outtmpl):
     }
     if not audio_only and FFMPEG_AVAILABLE:
         base_extra["merge_output_format"] = "mp4"
-        # stream-copy merge (no re-encode) + move moov atom to the front so the
-        # file starts playing before it's fully downloaded — no quality loss.
-        base_extra["postprocessor_args"] = {"merger": ["-movflags", "+faststart"]}
+        # Stream-copy merge, no re-encode. We deliberately DON'T pass
+        # -movflags +faststart: it relocates the moov atom, which forces ffmpeg
+        # to rewrite the entire container as a second pass. On this box (0.1
+        # shared vCPU) that pass is pure dead time the user spends staring at
+        # 0%, and it buys nothing here — the file is saved to disk and played
+        # locally, where a trailing moov atom is read just fine. faststart only
+        # matters for progressive playback over HTTP, which we don't do.
+        base_extra["postprocessor_args"] = {"merger": []}
     if shutil.which("aria2c"):
         base_extra["external_downloader"] = "aria2c"
         base_extra["external_downloader_args"] = [

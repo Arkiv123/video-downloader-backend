@@ -174,6 +174,25 @@ async function saveResponse(r, fallbackName){
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
 }
 
+/* Server pass-through: the backend pipes CDN bytes straight to us without ever
+   touching disk, so the file starts arriving in ~0.5s. Returns 409 when the
+   chosen format genuinely needs an ffmpeg merge/transcode — that's the signal
+   to fall back to the (much slower) store-and-forward path. */
+async function streamDownload(fallbackName){
+  const r = await fetch(`${API_BASE}/stream`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      url:$('#url').value.trim(),
+      format_id:state.selected,
+      audio_only:false
+    })
+  });
+  if(r.status===409) return false;              // needs a merge — not our path
+  if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  await saveResponse(r, fallbackName);
+  return true;
+}
+
 /* Server path: backend downloads + merges, then streams the file back. The
    reliable fallback and the only route for HD merges / MP3 transcodes. */
 async function serverDownload(sel, fallbackName){
@@ -210,17 +229,26 @@ async function goLive(){
   let name = (state.data.title||'video').replace(/[\\/:*?"<>|]/g,'').slice(0,80)
              + '.' + ((sel&&sel.type==='audio')?(sel.ext||'m4a'):((sel&&sel.ext)||'mp4'));
   try{
-    // FAST PATH: a single pre-merged HTTP stream is pulled straight from the CDN
-    // in the browser — no server hop, no double transfer. CDNs sometimes refuse
-    // cross-origin fetches; on ANY failure we fall back to the server path, so
-    // this is a pure speedup with no new failure mode.
+    // FAST PATH 1: a single pre-merged HTTP stream pulled straight from the CDN
+    // in the browser — no server hop at all. CDNs often refuse cross-origin
+    // fetches (googlevideo sends no CORS headers), so this usually fails on
+    // YouTube and always succeeds where it's allowed. Free when it works.
     if(sel && sel.direct_url){
       try{
         const dr = await fetch(sel.direct_url);
         if(dr.ok && dr.body){ await saveResponse(dr, name); $('#tally-label').textContent='Grabbed ✓'; return; }
         throw new Error('direct fetch not ok');
-      }catch(_){ $('#tally-label').textContent='Routing…'; /* fall through to server */ }
+      }catch(_){ $('#tally-label').textContent='Routing…'; /* fall through */ }
     }
+    // FAST PATH 2: server pass-through. Bytes start moving in ~0.5s instead of
+    // the ~20s of dead time /download spends fetching and merging the whole
+    // file to disk first. Any 409 means this format really does need a merge.
+    if(sel && !(sel.type==='audio' && sel.format_id==='audio-mp3')){
+      try{
+        if(await streamDownload(name)){ $('#tally-label').textContent='Grabbed ✓'; return; }
+      }catch(_){ /* fall through to the reliable path */ }
+    }
+    $('#tally-label').textContent='Merging…';
     await serverDownload(sel, name);
     $('#tally-label').textContent='Grabbed ✓';
   }catch(e){
