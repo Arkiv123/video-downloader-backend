@@ -242,8 +242,11 @@ async function goLive(){
     }
     // FAST PATH 2: server pass-through. Bytes start moving in ~0.5s instead of
     // the ~20s of dead time /download spends fetching and merging the whole
-    // file to disk first. Any 409 means this format really does need a merge.
-    if(sel && !(sel.type==='audio' && sel.format_id==='audio-mp3')){
+    // file to disk first. Gated on `progressive`: a video-only DASH track has
+    // a perfectly valid URL, so streaming one would silently produce a file
+    // with no audio. The backend refuses those too (409) — this just saves
+    // the round trip.
+    if(sel && sel.progressive && sel.format_id!=='audio-mp3'){
       try{
         if(await streamDownload(name)){ $('#tally-label').textContent='Grabbed ✓'; return; }
       }catch(_){ /* fall through to the reliable path */ }

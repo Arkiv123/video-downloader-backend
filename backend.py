@@ -1020,6 +1020,14 @@ def _resolve_stream_url(url, format_id):
     if format_id and format_id not in ("best", "audio-mp3"):
         for f in formats:
             if f.get("format_id") == format_id:
+                # A video track with no audio is a DASH half — passing it
+                # through would hand the user a SILENT file that looks fine.
+                # Only progressive (video+audio) or pure-audio formats are
+                # honestly streamable; everything else needs the merge path.
+                acodec = f.get("acodec")
+                has_audio = bool(acodec and acodec != "none")
+                if _is_video(f) and not has_audio:
+                    return None, None, None
                 u, ext = _pick(f)
                 if u:
                     return u, ext, title
