@@ -213,18 +213,25 @@ _ensure_pot_server()
 #     check, empty formats, SABR-only response), retry with other clients.
 #     Harmless for non-YouTube URLs (extractor_args are ignored).
 #
-#     SPEED: the first attempt asks for the small set of clients that a PO
-#     token unlocks (web_safari + mweb) in ONE call — this returns the full
-#     format table without paying the extra network round-trips of yt-dlp's
-#     broad default rotation (which probes many clients). The remaining entries
-#     are cheaper, single-client retries reached only if the first fails.
+#     SPEED: each entry is ONE client. yt-dlp mints a separate PO token per
+#     player client, and a token mint is the single most expensive step in a
+#     YouTube extraction (seconds, not milliseconds). Asking for two clients in
+#     one attempt therefore pays for two mints even when the first one already
+#     returned a full format table — so the happy path is listed alone, first.
 #     tv/android are last-resort (often storyboards-only or DRM).
 CLIENT_FALLBACKS = [
-    {"extractor_args": {"youtube": {"player_client": ["web_safari", "mweb"]}}},
+    {"extractor_args": {"youtube": {"player_client": ["web_safari"]}}},
     {"extractor_args": {"youtube": {"player_client": ["mweb"]}}},
     {"extractor_args": {"youtube": {"player_client": ["tv", "web"]}}},
     {"extractor_args": {"youtube": {"player_client": ["android_vr"]}}},
 ]
+
+# Wall-clock budget for the whole fallback ladder. Without this, 4 clients x
+# (no-cookies, then cookies) x yt-dlp's own retries can stack to ~2 minutes on
+# a hard URL while the user stares at a spinner. When the budget is spent we
+# stop starting NEW attempts and surface the last error instead.
+_EXTRACT_BUDGET_SECONDS = float(os.environ.get("EXTRACT_BUDGET_SECONDS", "45"))
+
 
 
 def _base_opts(extra=None, use_cookies=False):
@@ -356,12 +363,18 @@ def _extract_with_fallbacks(url, extra):
                   or url.startswith("ytsearch"))
     clients = CLIENT_FALLBACKS if is_youtube else [None]
     last_err = None
+    deadline = time.time() + _EXTRACT_BUDGET_SECONDS
 
     for use_cookies in (False, True):
         # no point retrying with cookies if we don't have any
         if use_cookies and not COOKIE_FILE:
             break
         for client_cfg in clients:
+            # Budget check before STARTING an attempt (never mid-flight): once
+            # we're this deep the remaining clients are the weak ones anyway,
+            # and a fast honest error beats a two-minute spinner.
+            if time.time() > deadline and last_err is not None:
+                raise last_err
             opts = _base_opts(extra, use_cookies=use_cookies)
             if client_cfg:
                 opts.update(client_cfg)
@@ -619,13 +632,11 @@ def _clean_formats(info):
     return videos + audios
 
 
-@app.post("/formats")
-def get_formats(req: URLRequest):
-    try:
-        info = _extract_with_fallbacks(req.url, {"quiet": True, "skip_download": True})
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not fetch formats: {e}")
+def _formats_payload(info):
+    """Build the /formats response from a resolved info dict.
 
+    Split out so a memo hit and a fresh extraction produce byte-identical
+    responses — there is exactly one place that shapes this payload."""
     # Some extractors hand back a playlist wrapper even with noplaylist
     # (multi-clip posts on Instagram/TikTok/Reddit). Use the first entry.
     if info.get("_type") == "playlist" or "entries" in info:
@@ -642,15 +653,7 @@ def get_formats(req: URLRequest):
     live_status = info.get("live_status")
     is_live = bool(info.get("is_live")) or live_status in ("is_live", "is_upcoming")
 
-    # Stash the resolved info so /download can skip a second full extraction
-    # (the slow PO-token + signature handshake). sanitize_info makes it safe to
-    # round-trip through JSON, which is how download_with_info_file consumes it.
-    try:
-        _memo_put(req.url, yt_dlp.YoutubeDL.sanitize_info(info))
-    except Exception:
-        pass
-
-    return {
+    return info, {
         "title": info.get("title"),
         "thumbnail": info.get("thumbnail"),
         "duration": info.get("duration"),
@@ -660,6 +663,40 @@ def get_formats(req: URLRequest):
                      if is_live else None,
         "formats": _clean_formats(info),
     }
+
+
+@app.post("/formats")
+def get_formats(req: URLRequest):
+    # MEMO HIT: resolving a YouTube URL costs 20-50s (PO-token mint + signature
+    # solve + client rotation), and that cost was being paid again on every
+    # single paste of the same link — a refresh, a retry after a failed grab,
+    # or a second visitor on a trending video. The memo already existed for
+    # /download; reading it here too makes all of those effectively instant.
+    memo = _memo_get(req.url)
+    if memo:
+        try:
+            _, payload = _formats_payload(memo)
+            if payload["formats"]:
+                return payload
+        except HTTPException:
+            pass  # stale/odd memo — fall through to a real extraction
+
+    try:
+        info = _extract_with_fallbacks(req.url, {"quiet": True, "skip_download": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not fetch formats: {e}")
+
+    info, payload = _formats_payload(info)
+
+    # Stash the resolved info so /download can skip a second full extraction
+    # (the slow PO-token + signature handshake). sanitize_info makes it safe to
+    # round-trip through JSON, which is how download_with_info_file consumes it.
+    try:
+        _memo_put(req.url, yt_dlp.YoutubeDL.sanitize_info(info))
+    except Exception:
+        pass
+
+    return payload
 
 
 def _build_format_chain(req, audio_only):
@@ -1014,4 +1051,25 @@ def stream(req: DownloadRequest):
 
 @app.get("/")
 def health_check():
-    return {"status": "ok", "message": "Video downloader API is running.", "cookies": bool(COOKIE_FILE)}
+    """Health + capability probe.
+
+    The capability block is here because YouTube speed depends almost entirely
+    on three things being present, and none of them fail loudly: the PO-token
+    server, a JS runtime for the n-signature solve, and ffmpeg. When any is
+    missing, extraction still "works" — it just falls back to a path that costs
+    ~15-20s per player client instead of ~2s. Reporting them turns a mystery
+    slowdown into a one-request answer."""
+    return {
+        "status": "ok",
+        "message": "Video downloader API is running.",
+        "cookies": bool(COOKIE_FILE),
+        "yt_dlp": getattr(yt_dlp.version, "__version__", "?"),
+        # The single biggest YouTube speed factor. False = every extraction
+        # pays a per-client Node subprocess to mint a token.
+        "pot_server": _pot_server_up(),
+        "js_runtimes": sorted(k for k, v in JS_RUNTIMES.items()
+                              if v.get("path") or shutil.which(k)),
+        "ffmpeg": FFMPEG_AVAILABLE,
+        "aria2c": bool(shutil.which("aria2c")),
+        "memo_entries": len(_INFO_MEMO),
+    }

@@ -396,6 +396,14 @@ def build():
     today = _dt.date.today().isoformat()
     entries = [(f"{origin}/", "1.0", "daily")]
     entries += [(f"{origin}/{p['slug']}/", "0.8", "weekly") for p in pages]
+    # Hand-authored static pages that aren't generated from config but should
+    # still be crawlable. /api/ is the developer docs page (SaveFrom-style).
+    entries += [
+        (f"{origin}/api/", "0.6", "monthly"),
+        (f"{origin}/terms/", "0.3", "yearly"),
+        (f"{origin}/privacy/", "0.3", "yearly"),
+        (f"{origin}/dmca/", "0.3", "yearly"),
+    ]
     sm = ['<?xml version="1.0" encoding="UTF-8"?>',
           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for loc, prio, freq in entries:
