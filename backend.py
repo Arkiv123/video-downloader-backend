@@ -1016,6 +1016,14 @@ def _resolve_stream_url(url, format_id):
         u = _direct_url(f)
         return u, f.get("ext")
 
+    def _is_dash(f):
+        """DASH/adaptive fragments are throttled to ~playback speed when pulled
+        as one open-ended GET (measured: format 251 dripped at 10KB/s and never
+        finished). They're designed for ranged chunk requests. /download's
+        aria2c opens several ranged connections and sidesteps it entirely, so
+        adaptive formats belong on that path, not the pass-through."""
+        return str(f.get("container") or "").endswith("_dash")
+
     # 1) exact format_id match, if it's a single-file stream
     if format_id and format_id not in ("best", "audio-mp3"):
         for f in formats:
@@ -1027,6 +1035,8 @@ def _resolve_stream_url(url, format_id):
                 acodec = f.get("acodec")
                 has_audio = bool(acodec and acodec != "none")
                 if _is_video(f) and not has_audio:
+                    return None, None, None
+                if _is_dash(f):
                     return None, None, None
                 u, ext = _pick(f)
                 if u:
@@ -1041,6 +1051,8 @@ def _resolve_stream_url(url, format_id):
         acodec = f.get("acodec")
         if not (acodec and acodec != "none"):
             continue  # video-only -> needs an audio merge, not a pass-through
+        if _is_dash(f):
+            continue
         u, ext = _pick(f)
         if not u:
             continue
