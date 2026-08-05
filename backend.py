@@ -1049,6 +1049,58 @@ def stream(req: DownloadRequest):
         raise HTTPException(status_code=500, detail=f"Stream failed: {e}")
 
 
+@app.post("/diag")
+def diag(req: URLRequest):
+    """Timing breakdown for one extraction. Diagnostic only — not used by the site.
+
+    /formats tells you it took 25 seconds; it doesn't tell you WHERE they went.
+    This walks the same client ladder but times each attempt separately and
+    times the PO-token server independently, which separates the three
+    candidates: a slow token mint, a slow per-client extraction, or a ladder
+    that's silently burning attempts before one succeeds."""
+    url = _rewrite_music_url(req.url)
+    is_youtube = ("youtube.com" in url or "youtu.be" in url or url.startswith("ytsearch"))
+
+    # Time the token server on its own. If this is seconds rather than
+    # milliseconds, the BotGuard challenge (CPU-bound JS) is the bottleneck and
+    # no amount of yt-dlp tuning will help — it's the instance's CPU.
+    pot = {}
+    try:
+        import urllib.request
+        t = time.time()
+        urllib.request.urlopen(f"http://127.0.0.1:{POT_PORT}/ping", timeout=30).read()
+        pot["ping_seconds"] = round(time.time() - t, 2)
+    except Exception as e:
+        pot["error"] = str(e)[:200]
+
+    trace = []
+    clients = CLIENT_FALLBACKS if is_youtube else [None]
+    for cfg in clients:
+        name = "default"
+        if cfg:
+            name = "+".join(cfg["extractor_args"]["youtube"]["player_client"])
+        t = time.time()
+        opts = _base_opts({"quiet": True, "no_warnings": True, "skip_download": True},
+                          use_cookies=False)
+        if cfg:
+            opts.update(cfg)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            trace.append({"client": name, "seconds": round(time.time() - t, 2),
+                          "ok": True, "formats": len(info.get("formats") or [])})
+            break   # stop at the first success, exactly like the real ladder
+        except Exception as e:
+            trace.append({"client": name, "seconds": round(time.time() - t, 2),
+                          "ok": False, "error": str(e)[:200]})
+
+    return {
+        "pot_server": pot,
+        "attempts": trace,
+        "total_seconds": round(sum(a["seconds"] for a in trace), 2),
+    }
+
+
 @app.get("/")
 def health_check():
     """Health + capability probe.
