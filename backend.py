@@ -1042,6 +1042,12 @@ def _resolve_stream_url(url, format_id):
                 if u:
                     return u, ext, title
                 return None, None, None  # chosen format needs a merge -> not streamable
+        # Named a format we can't find in this table (a degraded extraction, or
+        # a stale memo). Do NOT fall through to "best progressive" — that would
+        # silently hand back 360p when the user picked 1080p, which downloads
+        # fine and is simply the wrong file. 409 sends it to /download, which
+        # re-extracts and can still honour the request.
+        return None, None, None
 
     # 2) best progressive video (has both audio+video) that's a plain file
     best = None
